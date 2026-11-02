@@ -15,7 +15,7 @@ services:
       start_period: 20s
 
   actual-plaid:
-    image: ghcr.io/dgilmore-cf/actual-plaid-sync:0.1.0
+    image: ghcr.io/dgilmore-cf/actual-plaid-sync:0.1.1
     container_name: actual-plaid
     restart: unless-stopped
     depends_on:
@@ -65,3 +65,4 @@ volumes:
     name: actual-budget-data
   actual-plaid-data:
     name: actual-plaid-data
+

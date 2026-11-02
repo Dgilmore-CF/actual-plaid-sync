@@ -17,8 +17,8 @@ Wait for CI, Security, and Container workflows. Make the GHCR package public.
 ## 2. Verify ARM64 image
 
 ```powershell
-ssh pi01 "docker pull ghcr.io/dgilmore-cf/actual-plaid-sync:0.1.0"
-ssh pi01 "docker image inspect ghcr.io/dgilmore-cf/actual-plaid-sync:0.1.0 --format '{{.Architecture}} {{.Os}}'"
+ssh pi01 "docker pull ghcr.io/dgilmore-cf/actual-plaid-sync:0.1.1"
+ssh pi01 "docker image inspect ghcr.io/dgilmore-cf/actual-plaid-sync:0.1.1 --format '{{.Architecture}} {{.Os}}'"
 ```
 
 Expected: `arm64 linux`.
@@ -73,3 +73,4 @@ Open `https://plaid.dtg-lab.net`, connect a Sandbox institution, map an account,
 ## 9. Promote to Production
 
 In Portainer change `PLAID_ENV` to `production` and provide the Production Secret. Connect one institution and one account first.
+

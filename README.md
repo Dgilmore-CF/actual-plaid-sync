@@ -8,8 +8,9 @@ Self-hosted Plaid transaction synchronization for the unmodified official Actual
 
 - Raspberry Pi 4, ARM64
 - Actual: `actualbudget/actual-server:latest`
-- Companion: `ghcr.io/dgilmore-cf/actual-plaid-sync:0.1.0`
+- Companion: `ghcr.io/dgilmore-cf/actual-plaid-sync:0.1.1`
 - Portainer CE Stack
 - `https://plaid.dtg-lab.net`
 
 Read `docs/RUNBOOK.md` before deployment.
+
