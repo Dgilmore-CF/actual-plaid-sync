@@ -1,0 +1,67 @@
+services:
+  actual-server:
+    image: docker.io/actualbudget/actual-server:latest
+    container_name: actual-budget
+    restart: unless-stopped
+    ports:
+      - "5006:5006"
+    volumes:
+      - actual-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "node src/scripts/health-check.js"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  actual-plaid:
+    image: ghcr.io/dgilmore-cf/actual-plaid-sync:0.1.0
+    container_name: actual-plaid
+    restart: unless-stopped
+    depends_on:
+      actual-server:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      APP_URL: https://plaid.dtg-lab.net
+      ADMIN_TOKEN: ${PLAID_ADMIN_TOKEN}
+      SESSION_SECRET: ${PLAID_SESSION_SECRET}
+      TOKEN_ENCRYPTION_KEY: ${PLAID_TOKEN_ENCRYPTION_KEY}
+      PLAID_ENV: ${PLAID_ENV}
+      PLAID_CLIENT_ID: ${PLAID_CLIENT_ID}
+      PLAID_SECRET: ${PLAID_SECRET}
+      PLAID_COUNTRY_CODES: US
+      ACTUAL_SERVER_URL: http://actual-server:5006
+      ACTUAL_SERVER_PASSWORD: ${ACTUAL_SERVER_PASSWORD}
+      ACTUAL_BUDGET_ID: ${ACTUAL_BUDGET_ID}
+      ACTUAL_BUDGET_PASSWORD: ${ACTUAL_BUDGET_PASSWORD}
+      DATA_DIR: /data
+      SYNC_INTERVAL_MINUTES: "240"
+      IMPORT_DAYS: "90"
+    ports:
+      - "10.0.10.196:3000:3000"
+    volumes:
+      - actual-plaid-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "node", "src/healthcheck.js"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+volumes:
+  actual-data:
+    name: actual-budget-data
+  actual-plaid-data:
+    name: actual-plaid-data

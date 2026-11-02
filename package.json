@@ -1,0 +1,22 @@
+{
+  "name": "actual-plaid-sync",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {"node": ">=24"},
+  "scripts": {
+    "start": "node src/server.js",
+    "check": "node --check src/server.js && node --check src/sync.js && node --check src/actual.js",
+    "test": "node --test",
+    "ci": "npm run check && npm test"
+  },
+  "dependencies": {
+    "@actual-app/api": "26.9.0",
+    "express": "5.1.0",
+    "express-rate-limit": "8.1.0",
+    "helmet": "8.1.0",
+    "jose": "6.1.0",
+    "plaid": "42.2.0",
+    "zod": "4.1.11"
+  }
+}
