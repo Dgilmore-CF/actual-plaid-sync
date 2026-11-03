@@ -89,6 +89,14 @@ const migrations = [
   "ALTER TABLE review_queue ADD COLUMN actual_transaction_id TEXT",
   "ALTER TABLE review_queue ADD COLUMN actual_account_id TEXT",
   "ALTER TABLE review_queue ADD COLUMN resolution TEXT",
-  "ALTER TABLE sync_runs ADD COLUMN reconciliation_mismatches INTEGER DEFAULT 0"
+  "ALTER TABLE sync_runs ADD COLUMN reconciliation_mismatches INTEGER DEFAULT 0",
+  "ALTER TABLE mappings ADD COLUMN plaid_current_balance_cents INTEGER",
+  "ALTER TABLE mappings ADD COLUMN plaid_available_balance_cents INTEGER",
+  "ALTER TABLE mappings ADD COLUMN actual_cleared_balance_cents INTEGER",
+  "ALTER TABLE mappings ADD COLUMN actual_pending_balance_cents INTEGER",
+  "ALTER TABLE mappings ADD COLUMN actual_projected_balance_cents INTEGER",
+  "ALTER TABLE mappings ADD COLUMN posted_reconciliation_difference_cents INTEGER",
+  "ALTER TABLE mappings ADD COLUMN reconciliation_checked_at TEXT",
+  "ALTER TABLE mappings ADD COLUMN reconciliation_error TEXT"
 ];
 for (const sql of migrations) { try { db.exec(sql); } catch {} }
