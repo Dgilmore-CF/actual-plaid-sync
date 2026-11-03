@@ -1,67 +1,13 @@
-import * as api from '@actual-app/api';
-import { config } from './config.js';
-import { ensureActualDataDir } from './paths.js';
-
-let initialized = false;
-let queue = Promise.resolve();
-
-async function initialize() {
-  if (initialized) {
-    return;
-  }
-
-  const actualDataDir = ensureActualDataDir(config.dataDir);
-
-  await api.init({
-    dataDir: actualDataDir,
-    serverURL: config.actualUrl,
-    password: config.actualPassword,
-  });
-
-  await api.downloadBudget(
-    config.budgetId,
-    config.budgetPassword
-      ? { password: config.budgetPassword }
-      : undefined,
-  );
-
-  initialized = true;
-}
-
-export function serialized(fn) {
-  const run = queue.then(async () => {
-    await initialize();
-    return fn(api);
-  });
-
-  queue = run.catch(() => {});
-
-  return run;
-}
-
-export const listAccounts = () =>
-  serialized(actual => actual.getAccounts());
-
-export const createAccount = account =>
-  serialized(actual => actual.createAccount(account));
-
-export const importTransactions = (accountId, transactions) =>
-  serialized(actual =>
-    actual.importTransactions(accountId, transactions, {
-      defaultCleared: true,
-      payeeNameNormalization: false,
-    }),
-  );
-
-export const syncActual = () =>
-  serialized(actual => actual.sync());
-
-export async function closeActual() {
-  if (!initialized) {
-    return;
-  }
-
-  await queue;
-  await api.shutdown();
-  initialized = false;
-}
+import path from 'node:path';import * as api from '@actual-app/api';import {config} from './config.js';import {ensureActualDataDir,ensureBackupDir} from './paths.js';
+let ready=false;let queue=Promise.resolve();
+async function init(){if(ready)return;await api.init({dataDir:ensureActualDataDir(config.dataDir),serverURL:config.actualUrl,password:config.actualPassword});await api.downloadBudget(config.budgetId,config.budgetPassword?{password:config.budgetPassword}:undefined);ready=true;}
+export function serialized(fn){const run=queue.then(async()=>{await init();return fn(api)});queue=run.catch(()=>{});return run;}
+export const listAccounts=()=>serialized(a=>a.getAccounts());
+export const createAccount=x=>serialized(a=>a.createAccount(x));
+export const getAccountBalance=id=>serialized(a=>a.getAccountBalance(id));
+export const importTransactions=(id,txs)=>serialized(a=>a.importTransactions(id,txs,{defaultCleared:true,payeeNameNormalization:false}));
+export const updateTransaction=(id,x)=>serialized(a=>a.updateTransaction(id,x));
+export const deleteTransaction=id=>serialized(a=>a.deleteTransaction(id));
+export const syncActual=()=>serialized(a=>a.sync());
+export const backupBudget=()=>serialized(async a=>{const file=path.join(ensureBackupDir(config.dataDir),`actual-${new Date().toISOString().replace(/[:.]/g,'-')}.zip`);await a.exportBudget(file);return file;});
+export async function shutdown(){if(ready){await queue;await api.shutdown();ready=false;}}

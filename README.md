@@ -1,16 +1,7 @@
-# Actual Plaid Sync
+# Actual Plaid Sync 0.2.0
 
-Self-hosted Plaid transaction synchronization for the unmodified official Actual Budget server using `@actual-app/api`.
+Release-candidate implementation for mapping Plaid accounts to Actual Budget accounts, previewing and approving initial imports, backing up the budget, persisting sync cursors, queuing risky removals for review, and verifying Plaid webhook JWT signatures.
 
-> Version 0.1.0 is a release candidate. Validate with Plaid Sandbox and a disposable budget before connecting a Production Item.
+**Do not connect real accounts until every gate in `docs/PRODUCTION-RUNBOOK.md` passes in Sandbox.**
 
-## Target
-
-- Raspberry Pi 4, ARM64
-- Actual: `actualbudget/actual-server:latest`
-- Companion: `ghcr.io/dgilmore-cf/actual-plaid-sync:0.1.1`
-- Portainer CE Stack
-- `https://plaid.dtg-lab.net`
-
-Read `docs/RUNBOOK.md` before deployment.
-
+Target image: `ghcr.io/dgilmore-cf/actual-plaid-sync:0.2.0`
