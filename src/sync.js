@@ -103,8 +103,8 @@ export async function syncItem(itemId){
     for(const tx of data.modified){const m=maps.get(tx.account_id);if(m)await applyModified(tx,m);}
     for(const tx of data.removed)await applyRemoved(tx,itemId);
     await syncActual();
-    const reconciliation=await refreshItemBalances(itemId);const mismatches=reconciliation.filter(x=>x.reconciliationDifferenceCents!==0);
-    db.prepare('UPDATE items SET cursor=?,last_sync_at=CURRENT_TIMESTAMP,last_error=? WHERE item_id=?').run(data.cursor,mismatches.length?`Reconciliation mismatch on ${mismatches.length} account(s)`:null,itemId);
+    const reconciliation=await refreshItemBalances(itemId);const mismatches=reconciliation.filter(x=>!['reconciled','reconciled-pending'].includes(x.reconciliationStatus));
+    db.prepare('UPDATE items SET cursor=?,last_sync_at=CURRENT_TIMESTAMP,last_error=? WHERE item_id=?').run(data.cursor,mismatches.length?`Reconciliation exception on ${mismatches.length} account(s)`:null,itemId);
     db.prepare('UPDATE sync_runs SET finished_at=CURRENT_TIMESTAMP,added=?,modified=?,removed=?,reconciliation_mismatches=? WHERE id=?').run(data.added.length,data.modified.length,data.removed.length,mismatches.length,run.lastInsertRowid);
     return{added:data.added.length,modified:data.modified.length,removed:data.removed.length,reconciliation,ok:mismatches.length===0};
   }catch(e){db.prepare('UPDATE items SET last_error=? WHERE item_id=?').run(String(e.message||e),itemId);db.prepare('UPDATE sync_runs SET finished_at=CURRENT_TIMESTAMP,error=? WHERE id=?').run(String(e.message||e),run.lastInsertRowid);throw e;}finally{busy=false;}

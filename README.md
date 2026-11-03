@@ -1,7 +1,7 @@
-# Actual Plaid Sync 0.2.0 RC3
+# Actual Plaid Sync 0.2.0 RC4
 
-RC3 adds post-sync reconciliation, balance refresh, transaction identity backfill, pending-to-posted replacement, safe removed-transaction review controls, duplicate connection prevention, single-use OAuth callback state, signed webhook verification, and on-demand Plaid refresh.
+RC4 reconciles Plaid's real-time current balance against Actual's cleared balance and reports pending net and projected balance separately. It preserves all RC3 lifecycle, review, duplicate prevention, OAuth state, webhook, and persistence safeguards.
 
-Keep `PLAID_ENV=sandbox` until every gate in `docs/RC3-DEPLOYMENT.md` passes.
+Keep `PLAID_ENV=sandbox` until the RC4 qualification gates in `docs/RC4-PRODUCTION-PATH.md` pass.
 
-Target image: `ghcr.io/dgilmore-cf/actual-plaid-sync:0.2.0-rc.3`
+Target image: `ghcr.io/dgilmore-cf/actual-plaid-sync:0.2.0-rc.4`
