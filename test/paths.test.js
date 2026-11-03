@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import os from 'node:os';import path from 'node:path';import {ensureActualDataDir} from '../src/paths.js';
+test('creates cache idempotently',()=>{const root=fs.mkdtempSync(path.join(os.tmpdir(),'aps-'));try{const d=ensureActualDataDir(root);assert.equal(fs.statSync(d).isDirectory(),true);assert.equal(ensureActualDataDir(root),d)}finally{fs.rmSync(root,{recursive:true,force:true})}});
