@@ -5,7 +5,7 @@ export function serialized(fn){const run=queue.then(async()=>{await init();retur
 export const listAccounts=()=>serialized(a=>a.getAccounts());
 export const createAccount=x=>serialized(a=>a.createAccount(x));
 export const getAccountBalance=id=>serialized(a=>a.getAccountBalance(id));
-export const importTransactions=(id,txs)=>serialized(a=>a.importTransactions(id,txs,{defaultCleared:true,payeeNameNormalization:false}));
+export const importTransactions=(id,txs)=>serialized(a=>a.importTransactions(id,txs,{defaultCleared:true,payeeNameNormalization:'original'}));
 export const updateTransaction=(id,x)=>serialized(a=>a.updateTransaction(id,x));
 export const deleteTransaction=id=>serialized(a=>a.deleteTransaction(id));
 export const syncActual=()=>serialized(a=>a.sync());
