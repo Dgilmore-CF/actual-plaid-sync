@@ -1,6 +1,6 @@
 {
   "name": "actual-plaid-sync",
-  "version": "0.2.0",
+  "version": "0.2.1-rc.1",
   "private": true,
   "type": "module",
   "engines": {
@@ -8,7 +8,7 @@
   },
   "scripts": {
     "start": "node src/server.js",
-    "check": "node --check src/server.js && node --check src/sync.js && node --check src/actual.js && node --check src/webhook.js && node --check src/reconciliation.js && node --check src/balance-model.js && node --check src/oauth-state.js && node --check src/reviews.js && node --check src/item-identity.js && node --check public/app.js",
+    "check": "node --check src/server.js && node --check src/sync.js && node --check src/actual.js && node --check src/webhook.js && node --check src/reconciliation.js && node --check src/balance-model.js && node --check src/oauth-state.js && node --check src/reviews.js && node --check src/item-identity.js && node --check public/app.js && node --check src/actual.js",
     "test": "node --test",
     "ci": "npm run check && npm test"
   },
