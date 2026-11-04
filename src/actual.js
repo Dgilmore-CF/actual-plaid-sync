@@ -19,6 +19,7 @@ export const getTransactions=(id,start='1970-01-01',end='2999-12-31')=>serialize
 export const importTransactions=(id,txs)=>serialized(a=>a.importTransactions(id,txs,{defaultCleared:true,payeeNameNormalization:'original'}));
 export const updateTransaction=(id,x)=>serialized(a=>a.updateTransaction(id,x));
 export const deleteTransaction=id=>serialized(a=>a.deleteTransaction(id));
+export const deleteAccount=id=>serialized(a=>a.deleteAccount(id));
 export const syncActual=()=>serialized(a=>a.sync());
 export const backupBudget=()=>serialized(async a=>{const file=path.join(ensureBackupDir(config.dataDir),`actual-${new Date().toISOString().replace(/[:.]/g,'-')}.zip`);await a.exportBudget(file);return file;});
 export async function findByImportedId(accountId,importedId){const rows=await getTransactions(accountId);return rows.find(x=>x.imported_id===importedId)||null;}
