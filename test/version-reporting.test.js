@@ -1,0 +1,1 @@
+import test from 'node:test'; import assert from 'node:assert/strict'; import fs from 'node:fs'; test('runtime version comes from package metadata',()=>{const source=fs.readFileSync(new URL('../src/server.js',import.meta.url),'utf8');assert.match(source,/readFileSync/);assert.match(source,/appVersion/);assert.doesNotMatch(source,/0\.2\.1-rc\.5/);});
