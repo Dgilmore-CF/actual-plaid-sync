@@ -1,24 +1,24 @@
 {
-  "name": "actual-plaid-sync",
-  "version": "0.2.1-rc.1",
-  "private": true,
-  "type": "module",
-  "engines": {
-    "node": ">=24"
-  },
-  "scripts": {
-    "start": "node src/server.js",
-    "check": "node --check src/server.js && node --check src/sync.js && node --check src/actual.js && node --check src/webhook.js && node --check src/reconciliation.js && node --check src/balance-model.js && node --check src/oauth-state.js && node --check src/reviews.js && node --check src/item-identity.js && node --check public/app.js && node --check src/actual.js",
-    "test": "node --test",
-    "ci": "npm run check && npm test"
-  },
-  "dependencies": {
-    "@actual-app/api": "26.9.0",
-    "express": "5.1.0",
-    "express-rate-limit": "8.7.1",
-    "helmet": "8.1.0",
-    "jose": "6.1.0",
-    "plaid": "42.2.0",
-    "zod": "4.6.7"
-  }
+    "name":  "actual-plaid-sync",
+    "version":  "0.2.1-rc.3",
+    "private":  true,
+    "type":  "module",
+    "engines":  {
+                    "node":  "\u003e=24"
+                },
+    "scripts":  {
+                    "start":  "node src/server.js",
+                    "check":  "node --check src/server.js \u0026\u0026 node --check src/sync.js \u0026\u0026 node --check src/actual.js \u0026\u0026 node --check src/webhook.js \u0026\u0026 node --check src/reconciliation.js \u0026\u0026 node --check src/balance-model.js \u0026\u0026 node --check src/oauth-state.js \u0026\u0026 node --check src/reviews.js \u0026\u0026 node --check src/item-identity.js \u0026\u0026 node --check public/app.js \u0026\u0026 node --check src/actual.js",
+                    "test":  "node --test",
+                    "ci":  "npm run check \u0026\u0026 npm test"
+                },
+    "dependencies":  {
+                         "@actual-app/api":  "26.9.0",
+                         "express":  "5.1.0",
+                         "express-rate-limit":  "8.7.1",
+                         "helmet":  "8.1.0",
+                         "jose":  "6.1.0",
+                         "plaid":  "42.2.0",
+                         "zod":  "4.6.7"
+                     }
 }

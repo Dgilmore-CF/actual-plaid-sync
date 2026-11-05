@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {isDebtAccount,normalizePlaidBalanceCents} from '../src/account-sign.js';
+test('credit and loan balances are negative debt',()=>{assert.equal(isDebtAccount('credit','credit card'),true);assert.equal(normalizePlaidBalanceCents('credit','credit card',2740.86),-274086);assert.equal(normalizePlaidBalanceCents('loan','mortgage',100),-10000)});
+test('depository balances retain sign',()=>assert.equal(normalizePlaidBalanceCents('depository','checking',100),10000));

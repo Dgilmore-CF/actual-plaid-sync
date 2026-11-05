@@ -1,3 +1,4 @@
+import {normalizePlaidBalanceCents} from './account-sign.js';
 export function toActual(tx){return{date:tx.authorized_date||tx.date,amount:Math.round(-Number(tx.amount)*100),payee_name:tx.merchant_name||tx.name||'Unknown',notes:[tx.pending?'Pending':null,tx.payment_channel?`Plaid: ${tx.payment_channel}`:null].filter(Boolean).join(' | '),imported_id:`plaid:${tx.transaction_id}`,cleared:!tx.pending};}
-export function openingBalance(currentBalance,transactions){return Math.round(Number(currentBalance)*100)-transactions.reduce((sum,tx)=>sum+toActual(tx).amount,0);}
-export function reconcile(currentBalance,opening,transactions){return Math.round(Number(currentBalance)*100)-(opening+transactions.reduce((s,t)=>s+toActual(t).amount,0));}
+export function openingBalance(currentBalance,transactions,type='depository',subtype='checking'){return normalizePlaidBalanceCents(type,subtype,currentBalance)-transactions.reduce((sum,tx)=>sum+toActual(tx).amount,0);}
+export function reconcile(currentBalance,opening,transactions,type='depository',subtype='checking'){return normalizePlaidBalanceCents(type,subtype,currentBalance)-(opening+transactions.reduce((s,t)=>s+toActual(t).amount,0));}
