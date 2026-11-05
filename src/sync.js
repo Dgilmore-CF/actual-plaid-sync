@@ -6,6 +6,7 @@ import { toActual, openingBalance, reconcile } from './transform.js';
 import { refreshItemBalances } from './reconciliation.js';
 import { removalAction } from './transaction-policy.js';
 import {normalizePlaidBalanceCents} from './account-sign.js';
+import {categorizeForImport} from './categories.js';
 
 let busy=false;
 async function pages(item,cursorOverride){
@@ -32,7 +33,7 @@ async function mapImported(tx,mapping){
     VALUES(?,?,?,?,?,0,CURRENT_TIMESTAMP)
     ON CONFLICT(plaid_transaction_id) DO UPDATE SET actual_transaction_id=excluded.actual_transaction_id,pending=excluded.pending,updated_at=CURRENT_TIMESTAMP`).run(tx.transaction_id,tx.account_id,mapping.actual_account_id,actual?.id||null,tx.pending?1:0);
 }
-async function importNew(tx,mapping){await importTransactions(mapping.actual_account_id,[toActual(tx)]);await mapImported(tx,mapping);}
+async function importNew(tx,mapping){await importTransactions(mapping.actual_account_id,await categorizeForImport([tx]));await mapImported(tx,mapping);}
 async function backfillTransactionMap(mappings){
   for(const mapping of mappings.values()){
     const existing=db.prepare('SELECT COUNT(*) AS n FROM tx_map WHERE actual_account_id=?').get(mapping.actual_account_id).n;
@@ -86,7 +87,7 @@ export async function approveInitial(plaidAccountId){
   if(reconcile(m.current_balance,opening,txs,m.plaid_type,m.plaid_subtype)!==0)throw new Error('Initial reconciliation is non-zero');
   const backup=await backupBudget();
   const openingTx={date:txs.map(x=>x.date).sort()[0]||new Date().toISOString().slice(0,10),amount:opening,payee_name:'Starting Balance',notes:'Calculated from Plaid current balance and imported history',imported_id:`plaid:opening:${plaidAccountId}`,cleared:true};
-  await importTransactions(m.actual_account_id,[openingTx,...txs.map(toActual)]);await syncActual();
+  await importTransactions(m.actual_account_id,[openingTx,...await categorizeForImport(txs)]);await syncActual();
   for(const tx of txs)await mapImported(tx,m);
   db.prepare('UPDATE mappings SET initial_import_complete=1 WHERE plaid_account_id=?').run(plaidAccountId);
   db.prepare('INSERT INTO imports(plaid_account_id,actual_account_id,backup_path,approved_at,opening_balance,transaction_count) VALUES(?,?,?,CURRENT_TIMESTAMP,?,?)').run(plaidAccountId,m.actual_account_id,backup,opening,txs.length);
