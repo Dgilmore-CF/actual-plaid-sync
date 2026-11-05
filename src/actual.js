@@ -14,6 +14,7 @@ async function init(){
 export function serialized(fn){const run=queue.then(async()=>{await init();return fn(api)});queue=run.catch(()=>{});return run;}
 export const listAccounts=()=>serialized(a=>a.getAccounts());
 export const createAccount=x=>serialized(a=>a.createAccount(x));
+export const updateAccount=(id,x)=>serialized(a=>a.updateAccount(id,x));
 export const getAccountBalance=id=>serialized(a=>a.getAccountBalance(id));
 export const getTransactions=(id,start='1970-01-01',end='2999-12-31')=>serialized(a=>a.getTransactions(id,start,end));
 export const importTransactions=(id,txs)=>serialized(a=>a.importTransactions(id,txs,{defaultCleared:true,payeeNameNormalization:'original'}));

@@ -4,6 +4,7 @@ import {decrypt} from './crypto.js';
 import {getAccountBalance,getTransactions} from './actual.js';
 import {dollarsToCents,reconciliationDifference} from './money.js';
 import {calculateActualBalanceModel,determineStatus} from './balance-model.js';
+import {normalizePlaidBalanceCents} from './account-sign.js';
 
 export async function refreshItemBalances(itemId){
   const item=db.prepare('SELECT access_token_enc FROM items WHERE item_id=?').get(itemId);
@@ -14,7 +15,7 @@ export async function refreshItemBalances(itemId){
     const mapping=db.prepare('SELECT * FROM mappings WHERE plaid_account_id=?').get(account.account_id);
     if(!mapping||!mapping.enabled||!mapping.initial_import_complete||!mapping.actual_account_id)continue;
     const currency=account.balances.iso_currency_code||account.balances.unofficial_currency_code||'UNKNOWN';
-    const plaidCurrentBalanceCents=dollarsToCents(account.balances.current);
+    const plaidCurrentBalanceCents=normalizePlaidBalanceCents(account.type,account.subtype,account.balances.current);
     const plaidAvailableBalanceCents=account.balances.available==null?null:dollarsToCents(account.balances.available);
     const transactions=await getTransactions(mapping.actual_account_id);
     const actualApiBalanceCents=await getAccountBalance(mapping.actual_account_id);

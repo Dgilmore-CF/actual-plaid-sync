@@ -5,6 +5,7 @@ import { importTransactions, syncActual, backupBudget, findByImportedId, updateT
 import { toActual, openingBalance, reconcile } from './transform.js';
 import { refreshItemBalances } from './reconciliation.js';
 import { removalAction } from './transaction-policy.js';
+import {normalizePlaidBalanceCents} from './account-sign.js';
 
 let busy=false;
 async function pages(item,cursorOverride){
@@ -74,15 +75,15 @@ export async function previewInitial(plaidAccountId){
   if(!m)throw new Error('Unknown Plaid account');
   const data=await pages({access_token_enc:m.access_token_enc,cursor:null},null);
   const txs=[...data.added,...data.modified].filter(x=>x.account_id===plaidAccountId);
-  const opening=openingBalance(m.current_balance,txs);
-  return{plaidAccountId,transactionCount:txs.length,pendingCount:txs.filter(x=>x.pending).length,earliest:txs.map(x=>x.date).sort()[0]||null,latest:txs.map(x=>x.date).sort().at(-1)||null,currentBalanceCents:Math.round(Number(m.current_balance)*100),openingBalanceCents:opening,reconciliationDifferenceCents:reconcile(m.current_balance,opening,txs)};
+  const opening=openingBalance(m.current_balance,txs,m.plaid_type,m.plaid_subtype);
+  return{plaidAccountId,transactionCount:txs.length,pendingCount:txs.filter(x=>x.pending).length,earliest:txs.map(x=>x.date).sort()[0]||null,latest:txs.map(x=>x.date).sort().at(-1)||null,currentBalanceCents:normalizePlaidBalanceCents(m.plaid_type,m.plaid_subtype,m.current_balance),openingBalanceCents:opening,reconciliationDifferenceCents:reconcile(m.current_balance,opening,txs,m.plaid_type,m.plaid_subtype)};
 }
 export async function approveInitial(plaidAccountId){
   const m=db.prepare('SELECT m.*,i.* FROM mappings m JOIN items i ON i.item_id=m.item_id WHERE m.plaid_account_id=?').get(plaidAccountId);
   if(!m?.actual_account_id||!m.enabled)throw new Error('Account mapping must be enabled');
   if(m.initial_import_complete)throw new Error('Initial import already completed');
-  const data=await pages(m,null);const txs=[...data.added,...data.modified].filter(x=>x.account_id===plaidAccountId);const opening=openingBalance(m.current_balance,txs);
-  if(reconcile(m.current_balance,opening,txs)!==0)throw new Error('Initial reconciliation is non-zero');
+  const data=await pages(m,null);const txs=[...data.added,...data.modified].filter(x=>x.account_id===plaidAccountId);const opening=openingBalance(m.current_balance,txs,m.plaid_type,m.plaid_subtype);
+  if(reconcile(m.current_balance,opening,txs,m.plaid_type,m.plaid_subtype)!==0)throw new Error('Initial reconciliation is non-zero');
   const backup=await backupBudget();
   const openingTx={date:txs.map(x=>x.date).sort()[0]||new Date().toISOString().slice(0,10),amount:opening,payee_name:'Starting Balance',notes:'Calculated from Plaid current balance and imported history',imported_id:`plaid:opening:${plaidAccountId}`,cleared:true};
   await importTransactions(m.actual_account_id,[openingTx,...txs.map(toActual)]);await syncActual();
