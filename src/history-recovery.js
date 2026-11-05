@@ -4,6 +4,7 @@ import { decrypt } from './crypto.js';
 import { backupBudget, getTransactions, importTransactions, updateTransaction, syncActual } from './actual.js';
 import { toActual } from './transform.js';
 import { normalizePlaidBalanceCents } from './account-sign.js';
+import { categorizeForImport } from './categories.js';
 
 async function fetchAll(accessToken, accountId) {
   const endDate = new Date().toISOString().slice(0, 10);
@@ -49,7 +50,7 @@ export async function recoverMissingHistory(plaidAccountId) {
   const opening = actualTransactions.find(x => x.imported_id === `plaid:opening:${plaidAccountId}`);
   if (!opening) throw new Error('The existing Starting Balance could not be found');
   const backup = await backupBudget();
-  if (missing.length) await importTransactions(mapping.actual_account_id, missing.map(toActual));
+  if (missing.length) await importTransactions(mapping.actual_account_id, await categorizeForImport(missing));
   const refreshed = await getTransactions(mapping.actual_account_id);
   const nonOpeningTotal = refreshed.filter(x => x.id !== opening.id).reduce((sum, x) => sum + Number(x.amount || 0), 0);
   const target = normalizePlaidBalanceCents(mapping.plaid_type, mapping.plaid_subtype, mapping.current_balance);
