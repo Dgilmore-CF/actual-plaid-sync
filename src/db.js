@@ -2,6 +2,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { config } from './config.js';
 import { ensureDir } from './paths.js';
+import { migrateDatabase } from './schema.js';
 
 ensureDir(config.dataDir);
 export const db = new DatabaseSync(path.join(config.dataDir, 'state.sqlite'));
@@ -55,6 +56,10 @@ CREATE TABLE IF NOT EXISTS review_queue(
   actual_account_id TEXT,
   reason TEXT NOT NULL,
   payload TEXT,
+  environment TEXT,
+  source_item_status TEXT,
+  archived_at TEXT,
+  archive_reason TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   resolved_at TEXT,
   resolution TEXT
@@ -68,7 +73,16 @@ CREATE TABLE IF NOT EXISTS sync_runs(
   modified INTEGER DEFAULT 0,
   removed INTEGER DEFAULT 0,
   reconciliation_mismatches INTEGER DEFAULT 0,
-  error TEXT
+  error TEXT,
+  last_progress_at TEXT,
+  phase TEXT
+);
+CREATE TABLE IF NOT EXISTS review_resolutions(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  review_id INTEGER NOT NULL REFERENCES review_queue(id),
+  action TEXT NOT NULL,
+  details TEXT,
+  resolved_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS webhook_events(event_key TEXT PRIMARY KEY,received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS imports(id INTEGER PRIMARY KEY AUTOINCREMENT,plaid_account_id TEXT,actual_account_id TEXT,backup_path TEXT,approved_at TEXT,opening_balance INTEGER,transaction_count INTEGER);
@@ -79,24 +93,4 @@ CREATE TABLE IF NOT EXISTS oauth_states(
   used_at TEXT
 );
 `);
-
-const migrations = [
-  "ALTER TABLE mappings ADD COLUMN persistent_account_id TEXT",
-  "ALTER TABLE mappings ADD COLUMN actual_balance_cents INTEGER",
-  "ALTER TABLE mappings ADD COLUMN reconciliation_difference_cents INTEGER",
-  "ALTER TABLE mappings ADD COLUMN reconciliation_status TEXT NOT NULL DEFAULT 'unknown'",
-  "ALTER TABLE mappings ADD COLUMN balance_checked_at TEXT",
-  "ALTER TABLE review_queue ADD COLUMN actual_transaction_id TEXT",
-  "ALTER TABLE review_queue ADD COLUMN actual_account_id TEXT",
-  "ALTER TABLE review_queue ADD COLUMN resolution TEXT",
-  "ALTER TABLE sync_runs ADD COLUMN reconciliation_mismatches INTEGER DEFAULT 0",
-  "ALTER TABLE mappings ADD COLUMN plaid_current_balance_cents INTEGER",
-  "ALTER TABLE mappings ADD COLUMN plaid_available_balance_cents INTEGER",
-  "ALTER TABLE mappings ADD COLUMN actual_cleared_balance_cents INTEGER",
-  "ALTER TABLE mappings ADD COLUMN actual_pending_balance_cents INTEGER",
-  "ALTER TABLE mappings ADD COLUMN actual_projected_balance_cents INTEGER",
-  "ALTER TABLE mappings ADD COLUMN posted_reconciliation_difference_cents INTEGER",
-  "ALTER TABLE mappings ADD COLUMN reconciliation_checked_at TEXT",
-  "ALTER TABLE mappings ADD COLUMN reconciliation_error TEXT"
-];
-for (const sql of migrations) { try { db.exec(sql); } catch {} }
+migrateDatabase(db);

@@ -1,0 +1,56 @@
+name: Reconciliation investigation
+description: Report a Plaid/Actual balance or lifecycle mismatch using sanitized values.
+title: "reconciliation: "
+labels: [reconciliation]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Application version and environment
+    validations:
+      required: true
+  - type: input
+    id: account
+    attributes:
+      label: Institution and account label
+      description: Use an account name or mask suffix only. Never include a full account identifier.
+    validations:
+      required: true
+  - type: textarea
+    id: balances
+    attributes:
+      label: Sanitized balance evidence
+      description: Include currency, integer-cent or rounded amounts, cleared, pending, projected, and posted difference.
+    validations:
+      required: true
+  - type: textarea
+    id: ledger
+    attributes:
+      label: Ledger and lifecycle counts
+      description: Transaction count, Starting Balance count, duplicate imported-ID count, and open review reason counts. No transaction IDs.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and observed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Financial-data safety impact
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+    validations:
+      required: true
+  - type: input
+    id: release
+    attributes:
+      label: Release target
+    validations:
+      required: true

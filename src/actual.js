@@ -1,4 +1,6 @@
 import path from 'node:path';
+import fs from 'node:fs';
+import crypto from 'node:crypto';
 import * as api from '@actual-app/api';
 import { config } from './config.js';
 import { ensureActualDataDir, ensureBackupDir } from './paths.js';
@@ -22,6 +24,7 @@ export const updateTransaction=(id,x)=>serialized(a=>a.updateTransaction(id,x));
 export const deleteTransaction=id=>serialized(a=>a.deleteTransaction(id));
 export const deleteAccount=id=>serialized(a=>a.deleteAccount(id));
 export const syncActual=()=>serialized(a=>a.sync());
-export const backupBudget=()=>serialized(async a=>{const file=path.join(ensureBackupDir(config.dataDir),`actual-${new Date().toISOString().replace(/[:.]/g,'-')}.zip`);await a.exportBudget(file);return file;});
+export function plannedBackupPath(){return path.join(ensureBackupDir(config.dataDir),`actual-${new Date().toISOString().replace(/[:.]/g,'-')}-${crypto.randomBytes(4).toString('hex')}.zip`);}
+export const backupBudget=(requestedPath)=>serialized(async a=>{const directory=path.resolve(ensureBackupDir(config.dataDir));const file=path.resolve(requestedPath||plannedBackupPath());if(path.dirname(file)!==directory)throw new Error('Backup path must remain in the configured backup directory');if(fs.existsSync(file))throw new Error('Backup path already exists; create a new preview');await a.exportBudget(file);return file;});
 export async function findByImportedId(accountId,importedId){const rows=await getTransactions(accountId);return rows.find(x=>x.imported_id===importedId)||null;}
 export async function shutdown(){if(ready){await queue;await api.shutdown();ready=false;}}

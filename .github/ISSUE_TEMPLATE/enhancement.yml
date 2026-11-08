@@ -1,0 +1,42 @@
+name: Enhancement
+description: Propose a safe product or operational improvement.
+title: "enhancement: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: observed
+    attributes:
+      label: Current behavior or limitation
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Diagnostic evidence and use case
+      description: Use sanitized examples only. Never include credentials, tokens, or full account identifiers.
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Financial-data safety impact
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+    validations:
+      required: true
+  - type: input
+    id: release
+    attributes:
+      label: Release target
+    validations:
+      required: true

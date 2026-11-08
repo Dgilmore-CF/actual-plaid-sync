@@ -1,0 +1,45 @@
+name: Bug report
+description: Report a reproducible defect without sharing secrets or full account identifiers.
+title: "bug: "
+labels: [bug]
+body:
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+      description: What happened? Include sanitized logs or diagnostics only.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Diagnostic evidence and reproduction
+      description: Include version, environment, timestamps, and redacted evidence. Never include secret values or full account IDs.
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Financial-data safety impact
+      description: Could this duplicate, omit, misclassify, or change Actual ledger data?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+    validations:
+      required: true
+  - type: input
+    id: release
+    attributes:
+      label: Release target
+      placeholder: 0.2.3 or roadmap
+    validations:
+      required: true

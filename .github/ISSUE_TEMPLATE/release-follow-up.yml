@@ -1,0 +1,48 @@
+name: Release follow-up
+description: Track an operational or validation follow-up after a release.
+title: "release follow-up: "
+labels: [release-follow-up]
+body:
+  - type: input
+    id: release
+    attributes:
+      label: Release version
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized diagnostic evidence
+      description: Never include secrets, tokens, passwords, or full account identifiers.
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Financial-data safety impact
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+    validations:
+      required: true
+  - type: input
+    id: deployment
+    attributes:
+      label: Deployment date or planned date
+    validations:
+      required: true
