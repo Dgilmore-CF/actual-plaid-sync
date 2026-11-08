@@ -1,0 +1,99 @@
+name: Resolve release issue after Production validation
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: GitHub issue number to update
+        required: true
+        type: number
+      release_version:
+        description: Deployed release version
+        required: true
+        type: string
+      deployment_date:
+        description: Production deployment date
+        required: true
+        type: string
+      root_cause:
+        description: Root cause
+        required: true
+        type: string
+      changed_modules:
+        description: Changed modules
+        required: true
+        type: string
+      migration_details:
+        description: Database migration details
+        required: true
+        type: string
+      tests_performed:
+        description: Tests performed
+        required: true
+        type: string
+      validation_summary:
+        description: Manual Production validation summary
+        required: true
+        type: string
+      remaining_limitations:
+        description: Remaining limitations
+        required: true
+        type: string
+      production_validation_confirmed:
+        description: Select yes only after manual Production validation succeeded
+        required: true
+        type: choice
+        options:
+          - no
+          - yes
+permissions:
+  contents: read
+  issues: write
+jobs:
+  comment-and-close:
+    if: inputs.production_validation_confirmed == 'yes'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comment with release resolution and close the validated issue
+        uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          DEPLOYMENT_DATE: ${{ inputs.deployment_date }}
+          ROOT_CAUSE: ${{ inputs.root_cause }}
+          CHANGED_MODULES: ${{ inputs.changed_modules }}
+          MIGRATION_DETAILS: ${{ inputs.migration_details }}
+          TESTS_PERFORMED: ${{ inputs.tests_performed }}
+          VALIDATION_SUMMARY: ${{ inputs.validation_summary }}
+          REMAINING_LIMITATIONS: ${{ inputs.remaining_limitations }}
+        with:
+          script: |
+            const issue_number = Number(process.env.ISSUE_NUMBER)
+            const required = [
+              process.env.RELEASE_VERSION,
+              process.env.DEPLOYMENT_DATE,
+              process.env.ROOT_CAUSE,
+              process.env.CHANGED_MODULES,
+              process.env.MIGRATION_DETAILS,
+              process.env.TESTS_PERFORMED,
+              process.env.VALIDATION_SUMMARY,
+            ]
+            if (!Number.isInteger(issue_number) || issue_number <= 0 || required.some(value => !value?.trim())) {
+              throw new Error('Issue number and all release validation details are required')
+            }
+            const issue = await github.rest.issues.get({ owner: context.repo.owner, repo: context.repo.repo, issue_number })
+            if (issue.data.state !== 'open') throw new Error('The issue is already closed')
+            const body = [
+              `Production validation completed for ${process.env.RELEASE_VERSION}.`,
+              '',
+              `Root cause: ${process.env.ROOT_CAUSE}`,
+              `Changed modules: ${process.env.CHANGED_MODULES}`,
+              `Database migration: ${process.env.MIGRATION_DETAILS}`,
+              `Tests performed: ${process.env.TESTS_PERFORMED}`,
+              `Production validation results: ${process.env.VALIDATION_SUMMARY}`,
+              `Deployment date: ${process.env.DEPLOYMENT_DATE}`,
+              `Remaining limitations: ${process.env.REMAINING_LIMITATIONS?.trim() || 'None reported.'}`,
+              '',
+              'This issue is being closed only after the operator confirmed manual Production validation.',
+            ].join('\n')
+            await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number, body })
+            await github.rest.issues.update({ owner: context.repo.owner, repo: context.repo.repo, issue_number, state: 'closed' })

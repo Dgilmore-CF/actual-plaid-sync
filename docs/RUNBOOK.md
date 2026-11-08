@@ -1,75 +1,24 @@
-# Deployment runbook
+# Operations runbook
 
-## 1. Push from Windows
+`README.md` is the primary repository documentation. Use this checklist with the approved release issue and deployment plan.
 
-Extract the archive, enter the repository, and run:
+## Pre-deployment
 
-```powershell
-git remote remove origin 2>$null
-git remote add origin "https://github.com/Dgilmore-CF/actual-plaid-sync.git"
-git branch -M main
-git push -u origin main
-git push origin v0.1.0
-```
+1. Confirm the release PR and immutable tag are correct and all required CI, security, container, and release-asset checks passed.
+2. Verify the ARM64 image architecture on the target host without changing the running stack.
+3. Export the Actual budget and back up both named Docker volumes. Verify the backups and save the current Portainer Stack definition.
+4. Compare existing and proposed Stack configuration without printing secret values. Confirm the only intended application change is the image tag.
+5. Obtain immediate Production deployment confirmation before applying a Stack update or allowing startup migrations to touch the live volume.
 
-Wait for CI, Security, and Container workflows. Make the GHCR package public.
+## Post-deployment validation
 
-## 2. Verify ARM64 image
+1. Check `/health` and `/ready`.
+2. Confirm inactive Items show **Excluded from automatic synchronization** and generate no runs.
+3. Confirm active sync runs complete with a phase, timestamp, and no unfinished row.
+4. Review sanitized reconciliation diagnostics, lifecycle reviews, imported-ID duplicates, category assignments, and Starting Balance counts.
+5. Run two no-change syncs and check that no duplicate Actual transaction appears.
+6. Validate the scheduled sync and a signed Plaid webhook.
+7. Preserve the prior image tag and backups until validation is complete.
+8. Comment on the release issue with root cause, modules, migration, tests, Production results, date, and remaining limitations. Close only after Production validation passes.
 
-```powershell
-ssh pi01 "docker pull ghcr.io/dgilmore-cf/actual-plaid-sync:0.1.0"
-ssh pi01 "docker image inspect ghcr.io/dgilmore-cf/actual-plaid-sync:0.1.0 --format '{{.Architecture}} {{.Os}}'"
-```
-
-Expected: `arm64 linux`.
-
-## 3. Create an Actual budget
-
-Open `https://actual.dtg-lab.net`, create a USD budget, and record its Sync ID. Keep budget encryption disabled during initial validation.
-
-## 4. Generate secrets on pi01
-
-```powershell
-ssh pi01 "openssl rand -hex 32"
-ssh pi01 "openssl rand -base64 48"
-ssh pi01 "openssl rand -base64 48"
-```
-
-Store the outputs as token encryption key, administrator token, and session secret.
-
-## 5. Configure Cloudflare
-
-Add `plaid.dtg-lab.net` to the existing Tunnel with origin `http://10.0.10.196:3000`. Protect the hostname with Access. Bypass Access only for `/webhooks/plaid` and `/oauth-return`.
-
-## 6. Configure Plaid
-
-Register `https://plaid.dtg-lab.net/oauth-return`. Start in Sandbox.
-
-## 7. Portainer
-
-Open the existing Actual Stack, save its current YAML, then replace it with `compose.portainer.yml`. Add these Stack variables:
-
-- `ACTUAL_SERVER_PASSWORD`
-- `ACTUAL_BUDGET_ID`
-- `ACTUAL_BUDGET_PASSWORD` (empty initially)
-- `PLAID_ENV` = `sandbox`
-- `PLAID_CLIENT_ID`
-- `PLAID_SECRET` = Sandbox Secret
-- `PLAID_ADMIN_TOKEN`
-- `PLAID_SESSION_SECRET`
-- `PLAID_TOKEN_ENCRYPTION_KEY`
-
-Update the Stack with image re-pull enabled.
-
-## 8. Validate
-
-```powershell
-ssh pi01 "curl -fsS http://10.0.10.196:3000/health"
-ssh pi01 "curl -fsS http://10.0.10.196:3000/ready"
-```
-
-Open `https://plaid.dtg-lab.net`, connect a Sandbox institution, map an account, and sync twice. Confirm no duplicates in Actual.
-
-## 9. Promote to Production
-
-In Portainer change `PLAID_ENV` to `production` and provide the Production Secret. Connect one institution and one account first.
+Never edit a posted transaction, delete ledger data, alter a Starting Balance, restore a volume, or change credentials as an unapproved troubleshooting step.

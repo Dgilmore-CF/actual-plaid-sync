@@ -35,7 +35,12 @@ export async function historyStatus(plaidAccountId) {
   } catch (error) {
     const code = error?.response?.data?.error_code;
     if (code === 'PRODUCT_NOT_READY') return { status: 'preparing', transactionCount: 0 };
-    return { status: 'error', transactionCount: 0, error: error?.response?.data?.error_message || error.message };
+    return {
+      status: 'error',
+      transactionCount: 0,
+      error: 'Plaid history could not be checked',
+      errorCode: /^[A-Z0-9_]{1,80}$/.test(code || '') ? code : null,
+    };
   }
 }
 

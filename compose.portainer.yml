@@ -15,7 +15,7 @@ services:
       start_period: 20s
 
   actual-plaid:
-    image: ghcr.io/dgilmore-cf/actual-plaid-sync:0.2.2
+    image: ghcr.io/dgilmore-cf/actual-plaid-sync:0.2.3
     container_name: actual-plaid
     restart: unless-stopped
     depends_on:

@@ -1,22 +1,376 @@
-import express from 'express';import {readFileSync} from 'node:fs';import crypto from 'node:crypto';import helmet from 'helmet';import {rateLimit} from 'express-rate-limit';import {z} from 'zod';
-import {config} from './config.js';import {db} from './db.js';import {plaid,createLinkToken} from './plaid.js';import {encrypt,decrypt} from './crypto.js';import {listAccounts,createAccount,updateAccount,deleteAccount,backupBudget,syncActual,shutdown} from './actual.js';import {syncAll,syncItem,previewInitial,approveInitial} from './sync.js';import {verifyPlaidWebhook} from './webhook.js';import {duplicateAccounts} from './item-identity.js';import {issueOAuthState,consumeOAuthState} from './oauth-state.js';import {resolveReview} from './reviews.js';import {historyStatus,recoverMissingHistory} from './history-recovery.js';import {backfillCategories} from './categories.js';
-const appVersion=JSON.parse(readFileSync(new URL('../package.json',import.meta.url),'utf8')).version;const app=express();app.disable('x-powered-by');app.set('trust proxy',1);app.use(helmet({contentSecurityPolicy:{directives:{defaultSrc:["'self'"],scriptSrc:["'self'",'https://cdn.plaid.com'],frameSrc:["'self'",'https://cdn.plaid.com','https://*.plaid.com'],connectSrc:["'self'",'https://*.plaid.com'],styleSrc:["'self'","'unsafe-inline'"]}}}));app.use(express.json({limit:'128kb',verify:(req,_r,b)=>req.rawBody=b}));app.use(rateLimit({windowMs:60000,limit:120,standardHeaders:true,legacyHeaders:false}));app.use(express.static('public'));
-const equal=(a,b)=>{const x=Buffer.from(a||''),y=Buffer.from(b||'');return x.length===y.length&&crypto.timingSafeEqual(x,y)};const auth=(q,r,n)=>equal(q.get('x-admin-token'),config.adminToken)?n():r.status(401).json({error:'Unauthorized'});
-function readCookie(req,name){for(const part of (req.headers.cookie||'').split(';')){const [k,...v]=part.trim().split('=');if(k===name)return decodeURIComponent(v.join('='));}return null;}
-app.get('/health',(_q,r)=>r.json({status:'healthy',version:appVersion}));app.get('/ready',async(_q,r)=>{try{await listAccounts();r.json({status:'ready'})}catch(e){r.status(503).json({status:'not-ready',error:e.message})}});
-app.get('/api/status',auth,async(_q,r,n)=>{try{r.json({version:appVersion,plaidEnvironment:config.plaidEnv,actualAccounts:await listAccounts(),items:db.prepare('SELECT item_id,institution_name,last_sync_at,last_error FROM items').all(),mappings:db.prepare('SELECT * FROM mappings').all(),reviews:db.prepare('SELECT id,item_id,plaid_transaction_id,actual_transaction_id,actual_account_id,reason,payload,created_at FROM review_queue WHERE resolved_at IS NULL ORDER BY id DESC').all(),runs:db.prepare('SELECT * FROM sync_runs ORDER BY id DESC LIMIT 25').all()})}catch(e){n(e)}});
-app.post('/api/link-token',auth,async(q,r,n)=>{try{let t;if(q.body?.itemId){const row=db.prepare('SELECT access_token_enc FROM items WHERE item_id=?').get(q.body.itemId);t=row?decrypt(row.access_token_enc):undefined}const state=issueOAuthState();r.setHeader('Set-Cookie',`plaid_oauth_state=${encodeURIComponent(state)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`);r.json({link_token:await createLinkToken(t)})}catch(e){n(e)}});
-app.post('/api/exchange',auth,async(q,r,n)=>{try{const b=z.object({publicToken:z.string().min(10)}).parse(q.body);const ex=(await plaid.itemPublicTokenExchange({public_token:b.publicToken})).data;const item=(await plaid.itemGet({access_token:ex.access_token})).data.item;const accounts=(await plaid.accountsGet({access_token:ex.access_token})).data.accounts;const duplicates=duplicateAccounts(item.institution_id,accounts);if(duplicates.length){try{await plaid.itemRemove({access_token:ex.access_token})}catch{}return r.status(409).json({error:'Duplicate Plaid connection blocked',duplicates})}let name='Unknown institution';if(item.institution_id)name=(await plaid.institutionsGetById({institution_id:item.institution_id,country_codes:config.countries})).data.institution.name;db.prepare('INSERT INTO items(item_id,institution_id,institution_name,access_token_enc) VALUES(?,?,?,?)').run(ex.item_id,item.institution_id,name,encrypt(ex.access_token));const s=db.prepare('INSERT INTO mappings(plaid_account_id,item_id,persistent_account_id,plaid_name,plaid_mask,plaid_type,plaid_subtype,current_balance,available_balance) VALUES(?,?,?,?,?,?,?,?,?)');db.exec('BEGIN');try{for(const a of accounts)s.run(a.account_id,ex.item_id,a.persistent_account_id||null,a.name,a.mask,a.type,a.subtype,a.balances.current,a.balances.available);db.exec('COMMIT')}catch(e){db.exec('ROLLBACK');throw e}r.json({itemId:ex.item_id,institution:name,accounts})}catch(e){n(e)}});
-app.post('/api/accounts/create',auth,async(q,r,n)=>{try{const b=z.object({plaidAccountId:z.string(),name:z.string().min(1).max(100),offbudget:z.boolean().default(false)}).parse(q.body);const id=await createAccount({name:b.name,offbudget:b.offbudget});db.prepare('UPDATE mappings SET actual_account_id=?,actual_account_name=?,offbudget=?,enabled=1 WHERE plaid_account_id=?').run(id,b.name,b.offbudget?1:0,b.plaidAccountId);r.json({id})}catch(e){n(e)}});
-app.post('/api/accounts/:id/rename',auth,async(q,r,n)=>{try{const b=z.object({name:z.string().trim().min(1).max(100)}).parse(q.body);await updateAccount(q.params.id,{name:b.name});await syncActual();db.prepare('UPDATE mappings SET actual_account_name=? WHERE actual_account_id=?').run(b.name,q.params.id);r.json({id:q.params.id,name:b.name})}catch(e){n(e)}});
-app.post('/api/categories/backfill',auth,async(_q,r,n)=>{try{r.json(await backfillCategories())}catch(e){n(e)}});
-app.post('/api/history/status',auth,async(q,r,n)=>{try{const b=z.object({plaidAccountId:z.string()}).parse(q.body);r.json(await historyStatus(b.plaidAccountId))}catch(e){n(e)}});
-app.post('/api/history/recover',auth,async(q,r,n)=>{try{const b=z.object({plaidAccountId:z.string(),confirmation:z.literal('RECOVER MISSING HISTORY')}).parse(q.body);r.json(await recoverMissingHistory(b.plaidAccountId))}catch(e){n(e)}});
-app.post('/api/mappings',auth,(q,r,n)=>{try{const b=z.object({plaidAccountId:z.string(),actualAccountId:z.string().nullable(),actualAccountName:z.string().nullable(),offbudget:z.boolean().default(false),enabled:z.boolean()}).parse(q.body);db.prepare('UPDATE mappings SET actual_account_id=?,actual_account_name=?,offbudget=?,enabled=? WHERE plaid_account_id=?').run(b.actualAccountId,b.actualAccountName,b.offbudget?1:0,b.enabled?1:0,b.plaidAccountId);r.json({ok:true})}catch(e){n(e)}});
-app.post('/api/refresh',auth,async(q,r,n)=>{try{const itemId=z.object({itemId:z.string()}).parse(q.body).itemId;const row=db.prepare('SELECT access_token_enc FROM items WHERE item_id=?').get(itemId);if(!row)throw new Error('Unknown Plaid Item');const result=await plaid.transactionsRefresh({access_token:decrypt(row.access_token_enc)});r.json({requestId:result.data.request_id||null})}catch(e){n(e)}});
-app.post('/api/initial/preview',auth,async(q,r,n)=>{try{r.json(await previewInitial(z.object({plaidAccountId:z.string()}).parse(q.body).plaidAccountId))}catch(e){n(e)}});app.post('/api/initial/approve',auth,async(q,r,n)=>{try{r.json(await approveInitial(z.object({plaidAccountId:z.string()}).parse(q.body).plaidAccountId))}catch(e){n(e)}});app.post('/api/sync',auth,async(q,r,n)=>{try{r.json(q.body?.itemId?await syncItem(q.body.itemId):await syncAll())}catch(e){n(e)}});
-app.post('/api/maintenance/remove-sandbox-accounts',auth,async(q,r,n)=>{try{z.object({confirmation:z.literal('REMOVE SANDBOX ACCOUNTS')}).parse(q.body);const names=['Plaid Sandbox Checking','Plaid Dynamic Checking'];const accounts=await listAccounts();const matches=accounts.filter(a=>names.includes(a.name));if(!matches.length)return r.json({removed:[],message:'No sandbox test accounts were found.'});const backup=await backupBudget();const removed=[];for(const account of matches){await deleteAccount(account.id);db.prepare('UPDATE mappings SET actual_account_id=NULL,actual_account_name=NULL,enabled=0 WHERE actual_account_id=?').run(account.id);removed.push(account.name)}await syncActual();r.json({backup,removed,message:'Sandbox test accounts removed from Actual.'})}catch(e){n(e)}});
-app.post('/api/reviews/:id/resolve',auth,async(q,r,n)=>{try{const id=Number(q.params.id);const b=z.object({action:z.enum(['keep','delete','resolve'])}).parse(q.body);r.json(await resolveReview(id,b.action))}catch(e){n(e)}});
-app.post('/webhooks/plaid',async(q,r)=>{try{await verifyPlaidWebhook(q.get('Plaid-Verification'),q.rawBody);const k=crypto.createHash('sha256').update(q.rawBody).digest('hex');if(db.prepare('SELECT 1 FROM webhook_events WHERE event_key=?').get(k))return r.sendStatus(200);db.prepare('INSERT INTO webhook_events(event_key) VALUES(?)').run(k);r.sendStatus(200);if(q.body?.item_id)syncItem(q.body.item_id).catch(console.error)}catch(e){console.error('Rejected webhook:',e.message);r.sendStatus(401)}});
-app.get('/oauth-return',(q,r)=>{const state=readCookie(q,'plaid_oauth_state');if(!consumeOAuthState(state))return r.status(400).send('Invalid, expired, or reused OAuth state. Return to the application and restart Link.');r.setHeader('Set-Cookie','plaid_oauth_state=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0');r.sendFile(new URL('../public/index.html',import.meta.url).pathname)});
-app.use((e,_q,r,_n)=>{console.error('Request error:',e);r.status(e instanceof z.ZodError?400:500).json({error:e instanceof z.ZodError?'Invalid request':e?.response?.data?.error_message||e.message||'Internal error'})});const server=app.listen(config.port,()=>console.log(`Actual Plaid Sync ${appVersion} listening on ${config.port} (${config.plaidEnv})`));setInterval(()=>syncAll().catch(console.error),config.syncMinutes*60000).unref();async function stop(){server.close();await shutdown();process.exit(0)}process.on('SIGTERM',stop);process.on('SIGINT',stop);
+import express from 'express';
+import { readFileSync } from 'node:fs';
+import crypto from 'node:crypto';
+import helmet from 'helmet';
+import { rateLimit } from 'express-rate-limit';
+import { z } from 'zod';
+import { config } from './config.js';
+import { db } from './db.js';
+import { plaid, createLinkToken } from './plaid.js';
+import { encrypt, decrypt } from './crypto.js';
+import {
+  listAccounts, createAccount, updateAccount, deleteAccount,
+  backupBudget, syncActual, shutdown,
+} from './actual.js';
+import { syncAll, syncItem, previewInitial, approveInitial, eligibleItemIds, waitForSyncs } from './sync.js';
+import { verifyPlaidWebhook } from './webhook.js';
+import { duplicateAccounts } from './item-identity.js';
+import { issueOAuthState, consumeOAuthState } from './oauth-state.js';
+import {
+  archiveLegacyReviews, classifyReview, listReviews, reviewDetails,
+  productionOpenReviewCount, resolveReview,
+} from './reviews.js';
+import { historyStatus, recoverMissingHistory } from './history-recovery.js';
+import { backfillCategories } from './categories.js';
+import { investigateAccount, refreshItemBalances } from './reconciliation.js';
+import { previewStartingBalance, recalculateStartingBalance } from './starting-balance.js';
+import { syncCoordinator } from './sync-coordinator.js';
+import { resolveAndRefreshReview } from './review-resolution.js';
+
+const appVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+const app = express();
+app.disable('x-powered-by');
+app.set('trust proxy', 1);
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", 'https://cdn.plaid.com'],
+      frameSrc: ["'self'", 'https://cdn.plaid.com', 'https://*.plaid.com'],
+      connectSrc: ["'self'", 'https://*.plaid.com'],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+    },
+  },
+}));
+app.use(express.json({ limit: '128kb', verify: (request, _response, body) => { request.rawBody = body; } }));
+app.use(rateLimit({ windowMs: 60000, limit: 120, standardHeaders: true, legacyHeaders: false }));
+app.use(express.static('public'));
+
+const equal = (left, right) => {
+  const a = Buffer.from(left || '');
+  const b = Buffer.from(right || '');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+};
+const auth = (request, response, next) => equal(request.get('x-admin-token'), config.adminToken)
+  ? next() : response.status(401).json({ error: 'Unauthorized' });
+
+function readCookie(request, name) {
+  for (const part of (request.headers.cookie || '').split(';')) {
+    const [key, ...value] = part.trim().split('=');
+    if (key === name) return decodeURIComponent(value.join('='));
+  }
+  return null;
+}
+
+function itemStatus(item) {
+  const included = eligibleItemIds().includes(item.item_id);
+  return {
+    ...item,
+    last_error: item.last_error ? (/^Reconciliation exception on \d+ account\(s\)$/.test(item.last_error) ? item.last_error : 'Item sync reported an error') : null,
+    automatic_sync: included,
+    sync_status: included ? syncCoordinator.status(item.item_id) : 'excluded',
+    sync_status_label: included ? syncCoordinator.status(item.item_id) : 'Excluded from automatic synchronization',
+  };
+}
+
+app.get('/health', (_request, response) => response.json({ status: 'healthy', version: appVersion }));
+app.get('/ready', async (_request, response) => {
+  try {
+    await listAccounts();
+    response.json({ status: 'ready' });
+  } catch {
+    response.status(503).json({ status: 'not-ready', error: 'Actual API is unavailable' });
+  }
+});
+
+app.get('/api/status', auth, async (_request, response, next) => {
+  try {
+    response.json({
+      version: appVersion,
+      plaidEnvironment: config.plaidEnv,
+      actualAccounts: await listAccounts(),
+      items: db.prepare('SELECT item_id,institution_name,last_sync_at,last_error FROM items').all().map(itemStatus),
+      mappings: db.prepare('SELECT * FROM mappings').all(),
+      reviews: listReviews('production-open'),
+      reviewCounts: { productionOpen: productionOpenReviewCount() },
+      runs: db.prepare(`SELECT id,item_id,started_at,finished_at,added,modified,removed,reconciliation_mismatches,
+        CASE WHEN error IS NULL THEN NULL ELSE 'Sync run reported an error' END AS error,last_progress_at,phase
+        FROM sync_runs ORDER BY id DESC LIMIT 25`).all(),
+      activeSyncItemSuffixes: syncCoordinator.activeItemIds().map(itemId => String(itemId).slice(-6)),
+    });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/reviews', auth, (request, response, next) => {
+  try { response.json({ reviews: listReviews(request.query.filter || 'production-open') }); }
+  catch (error) { next(error); }
+});
+
+app.post('/api/link-token', auth, async (request, response, next) => {
+  try {
+    let accessToken;
+    if (request.body?.itemId) {
+      const item = db.prepare('SELECT access_token_enc FROM items WHERE item_id=?').get(request.body.itemId);
+      accessToken = item ? decrypt(item.access_token_enc) : undefined;
+    }
+    const state = issueOAuthState();
+    response.setHeader('Set-Cookie', `plaid_oauth_state=${encodeURIComponent(state)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`);
+    response.json({ link_token: await createLinkToken(accessToken) });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/exchange', auth, async (request, response, next) => {
+  try {
+    const body = z.object({ publicToken: z.string().min(10) }).parse(request.body);
+    const exchange = (await plaid.itemPublicTokenExchange({ public_token: body.publicToken })).data;
+    const item = (await plaid.itemGet({ access_token: exchange.access_token })).data.item;
+    const accounts = (await plaid.accountsGet({ access_token: exchange.access_token })).data.accounts;
+    const duplicates = duplicateAccounts(item.institution_id, accounts);
+    if (duplicates.length) {
+      try { await plaid.itemRemove({ access_token: exchange.access_token }); } catch {}
+      return response.status(409).json({ error: 'Duplicate Plaid connection blocked', duplicates });
+    }
+    let institutionName = 'Unknown institution';
+    if (item.institution_id) {
+      institutionName = (await plaid.institutionsGetById({
+        institution_id: item.institution_id,
+        country_codes: config.countries,
+      })).data.institution.name;
+    }
+    db.prepare('INSERT INTO items(item_id,institution_id,institution_name,access_token_enc) VALUES(?,?,?,?)')
+      .run(exchange.item_id, item.institution_id, institutionName, encrypt(exchange.access_token));
+    const insert = db.prepare(`INSERT INTO mappings(
+      plaid_account_id,item_id,persistent_account_id,plaid_name,plaid_mask,plaid_type,plaid_subtype,current_balance,available_balance
+    ) VALUES(?,?,?,?,?,?,?,?,?)`);
+    db.exec('BEGIN');
+    try {
+      for (const account of accounts) {
+        insert.run(account.account_id, exchange.item_id, account.persistent_account_id || null,
+          account.name, account.mask, account.type, account.subtype,
+          account.balances.current, account.balances.available);
+      }
+      db.exec('COMMIT');
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
+    response.json({ itemId: exchange.item_id, institution: institutionName, accounts });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/accounts/create', auth, async (request, response, next) => {
+  try {
+    const body = z.object({ plaidAccountId: z.string(), name: z.string().min(1).max(100), offbudget: z.boolean().default(false) }).parse(request.body);
+    const id = await createAccount({ name: body.name, offbudget: body.offbudget });
+    db.prepare('UPDATE mappings SET actual_account_id=?,actual_account_name=?,offbudget=?,enabled=1 WHERE plaid_account_id=?')
+      .run(id, body.name, body.offbudget ? 1 : 0, body.plaidAccountId);
+    response.json({ ok: true });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/accounts/:id/rename', auth, async (request, response, next) => {
+  try {
+    const body = z.object({ name: z.string().trim().min(1).max(100) }).parse(request.body);
+    await updateAccount(request.params.id, { name: body.name });
+    await syncActual();
+    db.prepare('UPDATE mappings SET actual_account_name=? WHERE actual_account_id=?').run(body.name, request.params.id);
+    response.json({ ok: true, name: body.name });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/categories/backfill', auth, async (_request, response, next) => {
+  try { response.json(await backfillCategories()); } catch (error) { next(error); }
+});
+
+app.post('/api/history/status', auth, async (request, response, next) => {
+  try {
+    const body = z.object({ plaidAccountId: z.string() }).parse(request.body);
+    response.json(await historyStatus(body.plaidAccountId));
+  } catch (error) { next(error); }
+});
+
+app.post('/api/history/recover', auth, async (request, response, next) => {
+  try {
+    const body = z.object({ plaidAccountId: z.string(), confirmation: z.literal('RECOVER MISSING HISTORY') }).parse(request.body);
+    response.json(await recoverMissingHistory(body.plaidAccountId));
+  } catch (error) { next(error); }
+});
+
+app.post('/api/mappings', auth, (request, response, next) => {
+  try {
+    const body = z.object({ plaidAccountId: z.string(), actualAccountId: z.string().nullable(), actualAccountName: z.string().nullable(), offbudget: z.boolean().default(false), enabled: z.boolean() }).parse(request.body);
+    db.prepare('UPDATE mappings SET actual_account_id=?,actual_account_name=?,offbudget=?,enabled=? WHERE plaid_account_id=?')
+      .run(body.actualAccountId, body.actualAccountName, body.offbudget ? 1 : 0, body.enabled ? 1 : 0, body.plaidAccountId);
+    response.json({ ok: true });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/refresh', auth, async (request, response, next) => {
+  try {
+    const { itemId } = z.object({ itemId: z.string() }).parse(request.body);
+    const item = db.prepare('SELECT access_token_enc FROM items WHERE item_id=?').get(itemId);
+    if (!item) throw new Error('Unknown Plaid Item');
+    const result = await plaid.transactionsRefresh({ access_token: decrypt(item.access_token_enc) });
+    response.json({ requestId: result.data.request_id || null });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/initial/preview', auth, async (request, response, next) => {
+  try { response.json(await previewInitial(z.object({ plaidAccountId: z.string() }).parse(request.body).plaidAccountId)); }
+  catch (error) { next(error); }
+});
+app.post('/api/initial/approve', auth, async (request, response, next) => {
+  try { response.json(await approveInitial(z.object({ plaidAccountId: z.string() }).parse(request.body).plaidAccountId)); }
+  catch (error) { next(error); }
+});
+
+app.post('/api/sync', auth, async (request, response, next) => {
+  try {
+    if (request.body?.itemId) {
+      const { itemId } = z.object({ itemId: z.string() }).parse(request.body);
+      response.json(await syncItem(itemId, { source: 'manual' }));
+    } else {
+      response.json(await syncAll({ source: 'manual' }));
+    }
+  } catch (error) { next(error); }
+});
+
+app.get('/api/investigation/:plaidAccountId', auth, async (request, response, next) => {
+  try { response.json(await investigateAccount(request.params.plaidAccountId)); }
+  catch (error) { next(error); }
+});
+
+app.post('/api/starting-balance/preview', auth, async (request, response, next) => {
+  try {
+    const body = z.object({ plaidAccountId: z.string() }).parse(request.body);
+    response.json(await previewStartingBalance(body.plaidAccountId));
+  } catch (error) { next(error); }
+});
+
+app.post('/api/starting-balance/recalculate', auth, async (request, response, next) => {
+  try {
+    const body = z.object({
+      plaidAccountId: z.string(),
+      confirmation: z.literal('RECALCULATE STARTING BALANCE'),
+      expected: z.object({ adjustmentCents: z.number().int(), proposedStartingBalanceCents: z.number().int(), backupPath: z.string() }),
+    }).parse(request.body);
+    const result = await recalculateStartingBalance(body.plaidAccountId, body.confirmation, body.expected);
+    try {
+      const item = db.prepare('SELECT item_id FROM mappings WHERE plaid_account_id=?').get(body.plaidAccountId);
+      if (item) result.reconciliation = await refreshItemBalances(item.item_id);
+    } catch { result.reconciliationUnavailable = true; }
+    response.json(result);
+  } catch (error) { next(error); }
+});
+
+app.post('/api/maintenance/remove-sandbox-accounts', auth, async (request, response, next) => {
+  try {
+    z.object({ confirmation: z.literal('REMOVE SANDBOX ACCOUNTS') }).parse(request.body);
+    const names = ['Plaid Sandbox Checking', 'Plaid Dynamic Checking'];
+    const accounts = await listAccounts();
+    const matches = accounts.filter(account => names.includes(account.name));
+    if (!matches.length) return response.json({ removed: [], message: 'No sandbox test accounts were found.' });
+    const backup = await backupBudget();
+    const removed = [];
+    for (const account of matches) {
+      await deleteAccount(account.id);
+      db.prepare('UPDATE mappings SET actual_account_id=NULL,actual_account_name=NULL,enabled=0 WHERE actual_account_id=?').run(account.id);
+      removed.push(account.name);
+    }
+    await syncActual();
+    response.json({ backup, removed, message: 'Sandbox test accounts removed from Actual.' });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/reviews/:id', auth, async (request, response, next) => {
+  try {
+    const review = await reviewDetails(Number(request.params.id));
+    if (!review) return response.status(404).json({ error: 'Review not found' });
+    response.json(review);
+  } catch (error) { next(error); }
+});
+
+app.post('/api/reviews/:id/resolve', auth, async (request, response, next) => {
+  try {
+    const body = z.object({
+      action: z.enum(['keep', 'delete', 'resolve', 'replace_pending', 'keep_both', 'delete_stale_pending', 'no_match']),
+      candidateActualIdSuffix: z.string().optional(),
+      confirmation: z.string().optional(),
+      confirmedDetails: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
+      confirmedPostedDetails: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
+    }).parse(request.body);
+    const review = db.prepare('SELECT item_id FROM review_queue WHERE id=?').get(Number(request.params.id));
+    const result = await resolveAndRefreshReview({
+      withNoSync: task => syncCoordinator.withNoSync(task),
+      resolve: resolveReview,
+      refresh: refreshItemBalances,
+      itemId: review?.item_id,
+      id: Number(request.params.id),
+      action: body.action,
+      options: body,
+    });
+    response.json(result);
+  } catch (error) { next(error); }
+});
+
+app.post('/api/reviews/:id/classify', auth, (request, response, next) => {
+  try {
+    const body = z.object({ environment: z.enum(['production', 'sandbox', 'legacy_unknown']), sourceItemStatus: z.enum(['active', 'excluded', 'removed', 'unknown']) }).parse(request.body);
+    response.json(classifyReview(Number(request.params.id), body));
+  } catch (error) { next(error); }
+});
+
+app.post('/api/reviews/archive-legacy', auth, (request, response, next) => {
+  try {
+    const body = z.object({ confirmation: z.literal('ARCHIVE LEGACY REVIEWS') }).parse(request.body);
+    response.json(archiveLegacyReviews(body.confirmation));
+  } catch (error) { next(error); }
+});
+
+app.post('/webhooks/plaid', async (request, response) => {
+  try {
+    await verifyPlaidWebhook(request.get('Plaid-Verification'), request.rawBody);
+    const eventKey = crypto.createHash('sha256').update(request.rawBody).digest('hex');
+    if (db.prepare('SELECT 1 FROM webhook_events WHERE event_key=?').get(eventKey)) return response.sendStatus(200);
+    db.prepare('INSERT INTO webhook_events(event_key) VALUES(?)').run(eventKey);
+    response.sendStatus(200);
+    if (request.body?.item_id) {
+      syncItem(request.body.item_id, { source: 'webhook' }).catch(() => {});
+    }
+  } catch {
+    response.sendStatus(401);
+  }
+});
+
+app.get('/oauth-return', (request, response) => {
+  const state = readCookie(request, 'plaid_oauth_state');
+  if (!consumeOAuthState(state)) return response.status(400).send('Invalid, expired, or reused OAuth state. Return to the application and restart Link.');
+  response.setHeader('Set-Cookie', 'plaid_oauth_state=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0');
+  response.sendFile(new URL('../public/index.html', import.meta.url).pathname);
+});
+
+app.use((error, _request, response, _next) => {
+  const isValidationError = error instanceof z.ZodError;
+  const message = String(error?.message || 'Internal error');
+  const sensitiveContent = error?.response || /token|secret|password|account[_ -]?id|[A-Za-z0-9_-]{40,}/i.test(message);
+  response.status(isValidationError ? 400 : 500).json({
+    error: isValidationError ? 'Invalid request' : sensitiveContent ? 'External service or protected data operation failed' : message,
+  });
+});
+
+const server = app.listen(config.port, () => console.log(`Actual Plaid Sync ${appVersion} listening on ${config.port} (${config.plaidEnv})`));
+const scheduler = setInterval(() => syncAll({ source: 'scheduled' }).catch(() => {}), config.syncMinutes * 60000);
+scheduler.unref();
+
+let stopping = false;
+async function stop() {
+  if (stopping) return;
+  stopping = true;
+  clearInterval(scheduler);
+  await new Promise(resolve => server.close(resolve));
+  await waitForSyncs();
+  await shutdown();
+  process.exit(0);
+}
+process.on('SIGTERM', stop);
+process.on('SIGINT', stop);

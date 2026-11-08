@@ -1,0 +1,103 @@
+name: Release assets
+on:
+  push:
+    tags:
+      - 'v*'
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run ci
+      - run: npm audit --omit=dev --audit-level=high
+      - uses: aquasecurity/trivy-action@0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+      - name: Validate release version
+        id: version
+        shell: bash
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          test "$TAG_VERSION" = "$PACKAGE_VERSION"
+          echo "version=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
+      - name: Build and verify source assets
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          TAG="$GITHUB_REF_NAME"
+          ZIP="actual-plaid-sync-${VERSION}-full.zip"
+          CHECKSUM="${ZIP}.sha256"
+          BUNDLE="actual-plaid-sync-${VERSION}.bundle"
+          if git ls-tree -r --name-only "$TAG" | grep -E '(^|/)\.env$|(^|/)node_modules/'; then
+            echo "Forbidden environment or dependency path is tracked"
+            exit 1
+          fi
+          if git log --all --format= --name-only | grep -E '(^|/)\.env$|(^|/)node_modules/'; then
+            echo "Forbidden environment or dependency path exists in Git history"
+            exit 1
+          fi
+          git archive --format=zip --prefix="actual-plaid-sync-${VERSION}/" "$TAG" > "$ZIP"
+          unzip -t "$ZIP"
+          if unzip -Z1 "$ZIP" | grep -E '(^|/)\.env$|(^|/)node_modules/'; then
+            echo "Forbidden path found in source archive"
+            exit 1
+          fi
+          sha256sum "$ZIP" > "$CHECKSUM"
+          sha256sum --check "$CHECKSUM"
+          git bundle create "$BUNDLE" --all
+          git bundle verify "$BUNDLE"
+          printf '%s\n' "$ZIP" "$CHECKSUM" "$BUNDLE" > release-files.txt
+      - name: Upload release files as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: actual-plaid-sync-${{ steps.version.outputs.version }}-release-assets
+          path: |
+            actual-plaid-sync-${{ steps.version.outputs.version }}-full.zip
+            actual-plaid-sync-${{ steps.version.outputs.version }}-full.zip.sha256
+            actual-plaid-sync-${{ steps.version.outputs.version }}.bundle
+          if-no-files-found: error
+          retention-days: 90
+      - name: Attach verified assets to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "Actual Plaid Sync ${VERSION}" --notes "See the repository README and release notes. Assets were verified by the release workflow."
+          for ASSET in "actual-plaid-sync-${VERSION}-full.zip" "actual-plaid-sync-${VERSION}-full.zip.sha256" "actual-plaid-sync-${VERSION}.bundle"; do
+            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fxq "$ASSET"; then
+              mkdir -p existing-assets
+              gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$ASSET" --dir existing-assets
+              cmp --silent "$ASSET" "existing-assets/$ASSET" || { echo "Existing immutable asset differs: $ASSET"; exit 1; }
+            else
+              gh release upload "$TAG" "$ASSET" --repo "$GITHUB_REPOSITORY"
+            fi
+          done
+  container:
+    needs: package
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    uses: ./.github/workflows/container.yml
+    secrets: inherit
