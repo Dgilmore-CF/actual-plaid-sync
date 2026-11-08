@@ -3,17 +3,27 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing immutable version tag to package and publish
+        required: true
+        type: string
+env:
+  RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
 permissions:
   contents: read
 jobs:
   package:
     runs-on: ubuntu-latest
+    outputs:
+      release_version: ${{ steps.version.outputs.version }}
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
@@ -22,7 +32,7 @@ jobs:
       - run: npm ci
       - run: npm run ci
       - run: npm audit --omit=dev --audit-level=high
-      - uses: aquasecurity/trivy-action@0.36.0
+      - uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -33,16 +43,18 @@ jobs:
         id: version
         shell: bash
         run: |
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          TAG_VERSION="${RELEASE_TAG#v}"
           PACKAGE_VERSION="$(node -p "require('./package.json').version")"
           test "$TAG_VERSION" = "$PACKAGE_VERSION"
+          test "$RELEASE_TAG" = "v$PACKAGE_VERSION"
           echo "version=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
       - name: Build and verify source assets
         shell: bash
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
         run: |
-          TAG="$GITHUB_REF_NAME"
+          TAG="$RELEASE_TAG"
           ZIP="actual-plaid-sync-${VERSION}-full.zip"
           CHECKSUM="${ZIP}.sha256"
           BUNDLE="actual-plaid-sync-${VERSION}.bundle"
@@ -78,7 +90,7 @@ jobs:
       - name: Attach verified assets to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ env.RELEASE_TAG }}
           VERSION: ${{ steps.version.outputs.version }}
         shell: bash
         run: |
@@ -100,4 +112,6 @@ jobs:
       attestations: write
       id-token: write
     uses: ./.github/workflows/container.yml
+    with:
+      release_version: ${{ needs.package.outputs.release_version }}
     secrets: inherit
