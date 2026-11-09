@@ -15,6 +15,8 @@ import {
 import { syncAll, syncItem, previewInitial, approveInitial, eligibleItemIds, waitForSyncs } from './sync.js';
 import { verifyPlaidWebhook } from './webhook.js';
 import { duplicateAccounts } from './item-identity.js';
+import { cancelItemReconnect, confirmItemReconnect, failItemReconnect } from './item-reconnect.js';
+import { createItemReconnectStore } from './item-reconnect-store.js';
 import { issueOAuthState, consumeOAuthState } from './oauth-state.js';
 import {
   archiveLegacyReviews, classifyReview, listReviews, reviewDetails,
@@ -29,6 +31,7 @@ import { resolveAndRefreshReview } from './review-resolution.js';
 
 const appVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 const app = express();
+const reconnectStore = createItemReconnectStore(db);
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 app.use(helmet({
@@ -107,16 +110,27 @@ app.get('/api/reviews', auth, (request, response, next) => {
 });
 
 app.post('/api/link-token', auth, async (request, response, next) => {
+  let reconnectId;
+  let itemId;
   try {
+    const body = z.object({ itemId: z.string().min(1).optional() }).parse(request.body || {});
     let accessToken;
-    if (request.body?.itemId) {
-      const item = db.prepare('SELECT access_token_enc FROM items WHERE item_id=?').get(request.body.itemId);
-      accessToken = item ? decrypt(item.access_token_enc) : undefined;
+    if (body.itemId) {
+      itemId = body.itemId;
+      const item = db.prepare('SELECT access_token_enc FROM items WHERE item_id=?').get(itemId);
+      if (!item) return response.status(404).json({ error: 'Unknown Plaid Item' });
+      accessToken = decrypt(item.access_token_enc);
+      reconnectId = crypto.randomUUID();
+      reconnectStore.start(reconnectId, itemId);
     }
     const state = issueOAuthState();
     response.setHeader('Set-Cookie', `plaid_oauth_state=${encodeURIComponent(state)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`);
-    response.json({ link_token: await createLinkToken(accessToken) });
-  } catch (error) { next(error); }
+    const linkToken = await createLinkToken(accessToken);
+    response.json(reconnectId ? { link_token: linkToken, reconnectId } : { link_token: linkToken });
+  } catch (error) {
+    if (reconnectId) reconnectStore.fail(reconnectId, itemId, 'link_token_creation_failed');
+    next(error);
+  }
 });
 
 app.post('/api/exchange', auth, async (request, response, next) => {
@@ -156,6 +170,82 @@ app.post('/api/exchange', auth, async (request, response, next) => {
     }
     response.json({ itemId: exchange.item_id, institution: institutionName, accounts });
   } catch (error) { next(error); }
+});
+
+app.post('/api/reconnect', auth, async (request, response, next) => {
+  let itemId;
+  let reconnectId;
+  try {
+    const body = z.object({ itemId: z.string().min(1), reconnectId: z.string().uuid() }).parse(request.body);
+    itemId = body.itemId;
+    reconnectId = body.reconnectId;
+    const result = await confirmItemReconnect({
+      itemId,
+      reconnectId,
+      loadAttempt: reconnectStore.load,
+      loadItem: itemId => db.prepare('SELECT item_id,access_token_enc FROM items WHERE item_id=?').get(itemId),
+      verifyItem: async existing => (await plaid.itemGet({ access_token: decrypt(existing.access_token_enc) })).data.item,
+      finalizeReconnect: reconnectStore.finalize,
+    });
+    response.json(result);
+  } catch (error) {
+    if (reconnectId && itemId) {
+      const failureCode = error.message === 'Plaid Item still requires attention' ? 'item_still_requires_attention'
+        : error.message === 'Unknown Plaid Item' ? 'item_not_found'
+          : error.message === 'Reconnect attempt changed during verification' ? 'update_conflict'
+            : 'verification_failed';
+      reconnectStore.fail(reconnectId, itemId, failureCode);
+    }
+    if (error.message === 'Unknown reconnect attempt') return response.status(404).json({ error: error.message });
+    if (error.message === 'Unknown Plaid Item') return response.status(404).json({ error: error.message });
+    if (error.message === 'Plaid Item still requires attention' || error.message === 'Reconnect attempt is not active' || error.message === 'Reconnect attempt changed during verification') {
+      return response.status(409).json({ error: 'Plaid has not confirmed a healthy connection for that Item' });
+    }
+    next(error);
+  }
+});
+
+app.post('/api/reconnect/cancel', auth, async (request, response, next) => {
+  try {
+    const body = z.object({ itemId: z.string().min(1), reconnectId: z.string().uuid() }).parse(request.body);
+    const result = await cancelItemReconnect({
+      itemId: body.itemId,
+      reconnectId: body.reconnectId,
+      loadAttempt: reconnectStore.load,
+      cancelAttempt: reconnectStore.cancel,
+    });
+    response.json(result);
+  } catch (error) {
+    if (error.message === 'Unknown reconnect attempt') return response.status(404).json({ error: error.message });
+    if (error.message === 'Reconnect attempt is not active' || error.message === 'Reconnect attempt changed before cancellation') {
+      return response.status(409).json({ error: 'Reconnect attempt has already finished' });
+    }
+    next(error);
+  }
+});
+
+app.post('/api/reconnect/fail', auth, async (request, response, next) => {
+  try {
+    const body = z.object({
+      itemId: z.string().min(1),
+      reconnectId: z.string().uuid(),
+      failureCode: z.enum(['link_exit_error', 'link_initialization_failed']),
+    }).parse(request.body);
+    const result = await failItemReconnect({
+      itemId: body.itemId,
+      reconnectId: body.reconnectId,
+      failureCode: body.failureCode,
+      loadAttempt: reconnectStore.load,
+      failAttempt: (itemId, reconnectId, code) => reconnectStore.fail(reconnectId, itemId, code),
+    });
+    response.json(result);
+  } catch (error) {
+    if (error.message === 'Unknown reconnect attempt') return response.status(404).json({ error: error.message });
+    if (error.message === 'Reconnect attempt is not active' || error.message === 'Reconnect attempt changed before failure was recorded') {
+      return response.status(409).json({ error: 'Reconnect attempt has already finished' });
+    }
+    next(error);
+  }
 });
 
 app.post('/api/accounts/create', auth, async (request, response, next) => {

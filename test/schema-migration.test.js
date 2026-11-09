@@ -25,6 +25,8 @@ test('additive migrations are repeatable and repair unfinished runs at startup',
   assert.ok(db.prepare('PRAGMA table_info(review_queue)').all().some(column => column.name === 'archived_at'));
   assert.ok(db.prepare('PRAGMA table_info(sync_runs)').all().some(column => column.name === 'last_progress_at'));
   assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='review_resolutions'").get());
+  assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='item_reconnect_events'").get());
+  assert.ok(db.prepare('PRAGMA table_info(item_reconnect_events)').all().some(column => column.name === 'failure_code'));
   const repaired = repairInterruptedRuns(db, '2026-11-08T00:00:00.000Z');
   assert.equal(repaired, 0);
   db.close();

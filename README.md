@@ -4,7 +4,7 @@ Actual Plaid Sync imports Plaid transaction activity into an Actual Budget, keep
 
 ## Release status
 
-The repository is preparing release 0.2.3 on `release/0.2.3`. Production remains on 0.2.2 until CI, security, ARM64 image, release-asset, backup, and operator validation gates pass. The intended image is `ghcr.io/dgilmore-cf/actual-plaid-sync:0.2.3`. Release assets are not available until the tagged Actions workflow generates and verifies them.
+The repository is preparing release 0.2.4 for Plaid Item reconnection support. Production remains on 0.2.3 until CI, security, multi-architecture image, release-asset, backup, and operator validation gates pass. The intended image is `ghcr.io/dgilmore-cf/actual-plaid-sync:0.2.4`. Release assets are not available until the tagged Actions workflow generates and verifies them.
 
 ## Product and architecture
 
@@ -108,6 +108,12 @@ Provide configuration through the deployment environment; `.env.example` contain
 | `SYNC_INTERVAL_MINUTES` | Scheduled sync interval, minimum 15 minutes, default 240. |
 | `IMPORT_DAYS` | Requested initial Plaid history, bounded to 1-730 days, default 90. |
 
+## Reconnecting an existing Plaid Item
+
+In **Connections**, use **Reconnect with Plaid** on the existing institution when Plaid reports that its credentials need attention. This opens Plaid Link in Update mode for that Item. Complete the bank's sign-in and any MFA steps in Plaid Link; do not enter bank credentials in chat or support logs. The app verifies that Plaid reports the same Item as healthy before marking the reconnect complete. Update mode keeps the existing Item ID, encrypted access token, account mappings, and Actual transactions; it does not create a new Item or exchange a new access token. Non-secret started/completed/cancelled/failed reconnect states and timestamps are audited. After Link reports success, use **Sync Item** to verify access; only a successful sync clears the prior sync error.
+
+**Add institution** is only for a genuinely new connection. Do not use it to reconnect an existing institution; duplicate Items are blocked.
+
 ## Docker and Portainer deployment
 
 The production Compose file is `compose.portainer.yml`. It keeps Actual and the companion as separate services and uses the named volumes `actual-budget-data` and `actual-plaid-data`. Preserve both volume names and all existing protected environment values when upgrading. The companion listens on container port 3000; the Actual API is reached over the Compose network.
@@ -155,7 +161,7 @@ See [Configuration](docs/CONFIGURATION.md), [Security](docs/SECURITY.md), [Troub
 
 ## GitHub issue policy
 
-Every defect, enhancement, operational follow-up, and deferred roadmap item has a GitHub issue. Issue reports include observed/expected behavior, evidence, financial-data safety impact, acceptance criteria, and release target; they must never include secrets or full account identifiers. Resolve and close a release issue only after manual Production validation succeeds. The 0.2.3 work is tracked by [#23](https://github.com/Dgilmore-CF/actual-plaid-sync/issues/23); the stylesheet cleanup is tracked by [#25](https://github.com/Dgilmore-CF/actual-plaid-sync/issues/25); and the multi-account initial-history fix is tracked by [#34](https://github.com/Dgilmore-CF/actual-plaid-sync/issues/34).
+Every defect, enhancement, operational follow-up, and deferred roadmap item has a GitHub issue. Issue reports include observed/expected behavior, evidence, financial-data safety impact, acceptance criteria, and release target; they must never include secrets or full account identifiers. Resolve and close a release issue only after manual Production validation succeeds. The 0.2.3 work is tracked by [#23](https://github.com/Dgilmore-CF/actual-plaid-sync/issues/23); the stylesheet cleanup by [#25](https://github.com/Dgilmore-CF/actual-plaid-sync/issues/25); the multi-account initial-history fix by [#34](https://github.com/Dgilmore-CF/actual-plaid-sync/issues/34); the 0.2.3 release-workflow recovery by [#37](https://github.com/Dgilmore-CF/actual-plaid-sync/issues/37); and Plaid Item reconnection by [#20](https://github.com/Dgilmore-CF/actual-plaid-sync/issues/20).
 
 ## Development workflow
 
@@ -172,23 +178,22 @@ CI runs syntax checks, Node tests, and the production dependency audit. Security
 
 ## Release lifecycle
 
-1. Verify the 0.2.3 issue and any related issues; implement on `release/0.2.3`.
+1. Verify the 0.2.4 issue and any related issues; implement on a release branch from current `main`.
 2. Run `npm ci`, `npm run ci`, and `npm audit --omit=dev --audit-level=high`; review the complete diff and security scan.
-3. Open a PR referencing #23 and any additional issues. Require CI and Security checks.
-4. Merge only after review. Create a new immutable `v0.2.3` tag only once; never force-push or rewrite published tags.
-5. The tag workflow validates package/tag version, tests and scans source, creates and verifies the ZIP, SHA-256 file, and Git bundle, attaches them to the GitHub Release, and publishes ARM64.
+3. Open a PR referencing #20 and any additional issues. Require CI and Security checks.
+4. Merge only after review. Create a new immutable `v0.2.4` tag only once; never force-push or rewrite published tags.
+5. The tag workflow validates package/tag version, tests and scans source, creates and verifies the ZIP, SHA-256 file, and Git bundle, attaches them to the GitHub Release, and publishes ARM64/AMD64 images.
 6. Verify backups and the ARM64 image. Request explicit Production deployment approval, then validate health, reconciliation, two no-change syncs, scheduler, and signed webhook behavior.
 7. Record root cause, modules, migrations, tests, Production results, deployment date, and limitations on the issue. Close it only after Production validation.
 
 ## Roadmap
 
-Each item has its own issue and is not promised for 0.2.3:
+Each item has its own issue and is not promised for 0.2.4:
 
 - Investment transaction support [#16]
 - Optional posted-removal policies [#17]
 - Mobile dashboard improvements [#18]
 - Multi-currency conversion [#19]
-- Plaid Item reconnection automation [#20]
 - Expanded liability details [#21]
 - Exportable audit reports [#22]
 - Safe bulk review workflows [#24]
