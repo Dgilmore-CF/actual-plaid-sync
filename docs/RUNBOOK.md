@@ -16,7 +16,7 @@
 2. Confirm inactive Items show **Excluded from automatic synchronization** and generate no runs.
 3. Confirm active sync runs complete with a phase, timestamp, and no unfinished row.
 4. Review sanitized reconciliation diagnostics, lifecycle reviews, imported-ID duplicates, category assignments, and Starting Balance counts.
-5. For an Item that needs credentials refreshed, use its **Reconnect** action in Update mode. Confirm the Item ID and mappings remain unchanged, then run that Item's sync.
+5. For an Item that needs credentials refreshed, use its **Reconnect with Plaid** action in Update mode. Confirm the Item ID and mappings remain unchanged, the audit event completes, then run that Item's sync.
 6. Run two no-change syncs and check that no duplicate Actual transaction appears.
 7. Validate the scheduled sync and a signed Plaid webhook.
 8. Preserve the prior image tag and backups until validation is complete.

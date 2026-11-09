@@ -40,6 +40,14 @@ export function migrateDatabase(database) {
   }
 
   database.exec(`
+    CREATE TABLE IF NOT EXISTS item_reconnect_events(
+      reconnect_id TEXT PRIMARY KEY,
+      item_id TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('started','completed','cancelled','failed')),
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      finished_at TEXT,
+      failure_code TEXT
+    );
     CREATE TABLE IF NOT EXISTS review_resolutions(
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       review_id INTEGER NOT NULL REFERENCES review_queue(id),
@@ -60,6 +68,8 @@ export function migrateDatabase(database) {
     );
     CREATE INDEX IF NOT EXISTS idx_review_queue_classification
       ON review_queue(environment, resolved_at, archived_at, reason);
+    CREATE INDEX IF NOT EXISTS idx_item_reconnect_events_item_created
+      ON item_reconnect_events(item_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_sync_runs_unfinished
       ON sync_runs(finished_at, item_id);
     UPDATE review_queue

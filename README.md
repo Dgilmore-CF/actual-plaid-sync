@@ -110,7 +110,7 @@ Provide configuration through the deployment environment; `.env.example` contain
 
 ## Reconnecting an existing Plaid Item
 
-In **Connections**, use **Reconnect** on the existing institution when Plaid reports that its credentials need attention. This opens Plaid Link in Update mode for that Item. Complete the bank's sign-in and any MFA steps in Plaid Link; do not enter bank credentials in chat or support logs. The app verifies that Plaid reports the same Item as healthy before clearing its sync error. Update mode keeps the existing Item ID, encrypted access token, account mappings, and Actual transactions; it does not create a new Item or exchange a new access token. After Link reports success, use **Sync Item** to verify access.
+In **Connections**, use **Reconnect with Plaid** on the existing institution when Plaid reports that its credentials need attention. This opens Plaid Link in Update mode for that Item. Complete the bank's sign-in and any MFA steps in Plaid Link; do not enter bank credentials in chat or support logs. The app verifies that Plaid reports the same Item as healthy before marking the reconnect complete. Update mode keeps the existing Item ID, encrypted access token, account mappings, and Actual transactions; it does not create a new Item or exchange a new access token. Non-secret started/completed/cancelled/failed reconnect states and timestamps are audited. After Link reports success, use **Sync Item** to verify access; only a successful sync clears the prior sync error.
 
 **Add institution** is only for a genuinely new connection. Do not use it to reconnect an existing institution; duplicate Items are blocked.
 

@@ -5,9 +5,12 @@ Release 0.2.4 adds a safe way to reauthorize an existing Plaid Item.
 ## Changes
 
 - Add a per-institution Reconnect action that launches Plaid Link in Update mode.
-- Verify Plaid returns the same healthy Item before clearing its sync error.
+- Verify Plaid returns the same healthy Item before marking a reconnect complete; a later successful sync clears its sync error.
 - Preserve the existing Item ID, encrypted access token, account mappings, and Actual transactions.
+- Audit reconnect attempt states and timestamps without storing Link or bank credentials.
 - Keep new-institution linking separate from reconnecting an existing Item.
+
+The startup migration adds `item_reconnect_events` to the companion SQLite database. It does not modify the Actual budget or transaction records.
 
 ## Validation
 

@@ -172,30 +172,45 @@ async function refresh() {
 function bindConnectionActions() {
   document.querySelectorAll('[data-reconnect]').forEach(button => button.onclick = async () => {
     const itemId = button.dataset.reconnect;
+    let reconnectId;
+    let completed = false;
     button.disabled = true;
+    const cancelAttempt = async () => {
+      if (!reconnectId) return;
+      try { await api('/api/reconnect/cancel', { method: 'POST', body: JSON.stringify({ itemId, reconnectId }) }); } catch {}
+    };
     try {
       const result = await api('/api/link-token', { method: 'POST', body: JSON.stringify({ itemId }) });
-      let completed = false;
+      reconnectId = result.reconnectId;
+      if (!reconnectId) throw new Error('Reconnect attempt was not created');
       Plaid.create({
         token: result.link_token,
         onSuccess: async () => {
+          if (completed) return;
           completed = true;
+          note('Plaid Link completed. Verifying the existing Item…');
           try {
-            await api('/api/reconnect', { method: 'POST', body: JSON.stringify({ itemId }) });
+            await api('/api/reconnect', { method: 'POST', body: JSON.stringify({ itemId, reconnectId }) });
             note('Plaid connection updated. Use Sync Item to verify access.');
             await refresh();
           } catch {
             note('Reconnect could not be confirmed. The app kept the existing Item and mappings.', true);
           } finally { button.disabled = false; }
         },
-        onExit: () => {
-          if (!completed) {
-            note('Reconnect cancelled. The existing connection was not changed.');
-            button.disabled = false;
-          }
+        onExit: async () => {
+          if (completed) return;
+          completed = true;
+          await cancelAttempt();
+          note('Reconnect cancelled. The existing connection was not changed.');
+          button.disabled = false;
         },
       }).open();
+      note('Complete the bank sign-in and any MFA in Plaid Link.');
     } catch {
+      if (!completed) {
+        completed = true;
+        await cancelAttempt();
+      }
       note('Could not start Plaid reconnect. The existing connection was not changed.', true);
       button.disabled = false;
     }
