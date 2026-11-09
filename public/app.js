@@ -195,7 +195,7 @@ function bindConnectionActions() {
           note('Plaid Link completed. Verifying the existing Item…');
           try {
             await api('/api/reconnect', { method: 'POST', body: JSON.stringify({ itemId, reconnectId }) });
-            note('Plaid connection updated. Use Sync Item to verify access.');
+            note('Plaid confirmed the existing connection. Use Sync Item to verify access.');
             await refresh();
           } catch {
             note('Reconnect could not be confirmed. The app kept the existing Item and mappings.', true);

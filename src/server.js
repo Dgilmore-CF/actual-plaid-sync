@@ -76,7 +76,6 @@ function itemStatus(item) {
   };
 }
 
-
 app.get('/health', (_request, response) => response.json({ status: 'healthy', version: appVersion }));
 app.get('/ready', async (_request, response) => {
   try {
