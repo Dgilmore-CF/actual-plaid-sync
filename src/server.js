@@ -15,6 +15,7 @@ import {
 import { syncAll, syncItem, previewInitial, approveInitial, eligibleItemIds, waitForSyncs } from './sync.js';
 import { verifyPlaidWebhook } from './webhook.js';
 import { duplicateAccounts } from './item-identity.js';
+import { confirmItemReconnect } from './item-reconnect.js';
 import { issueOAuthState, consumeOAuthState } from './oauth-state.js';
 import {
   archiveLegacyReviews, classifyReview, listReviews, reviewDetails,
@@ -108,10 +109,12 @@ app.get('/api/reviews', auth, (request, response, next) => {
 
 app.post('/api/link-token', auth, async (request, response, next) => {
   try {
+    const body = z.object({ itemId: z.string().min(1).optional() }).parse(request.body || {});
     let accessToken;
-    if (request.body?.itemId) {
-      const item = db.prepare('SELECT access_token_enc FROM items WHERE item_id=?').get(request.body.itemId);
-      accessToken = item ? decrypt(item.access_token_enc) : undefined;
+    if (body.itemId) {
+      const item = db.prepare('SELECT access_token_enc FROM items WHERE item_id=?').get(body.itemId);
+      if (!item) return response.status(404).json({ error: 'Unknown Plaid Item' });
+      accessToken = decrypt(item.access_token_enc);
     }
     const state = issueOAuthState();
     response.setHeader('Set-Cookie', `plaid_oauth_state=${encodeURIComponent(state)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`);
@@ -156,6 +159,27 @@ app.post('/api/exchange', auth, async (request, response, next) => {
     }
     response.json({ itemId: exchange.item_id, institution: institutionName, accounts });
   } catch (error) { next(error); }
+});
+
+app.post('/api/reconnect', auth, async (request, response, next) => {
+  try {
+    const body = z.object({ itemId: z.string().min(1) }).parse(request.body);
+    const result = await confirmItemReconnect({
+      itemId: body.itemId,
+      loadItem: itemId => db.prepare('SELECT item_id,access_token_enc FROM items WHERE item_id=?').get(itemId),
+      verifyItem: async existing => (await plaid.itemGet({ access_token: decrypt(existing.access_token_enc) })).data.item,
+      clearLastError: (itemId, currentToken) => db.prepare(`
+        UPDATE items SET last_error=NULL WHERE item_id=? AND access_token_enc=?
+      `).run(itemId, currentToken).changes === 1,
+    });
+    response.json(result);
+  } catch (error) {
+    if (error.message === 'Unknown Plaid Item') return response.status(404).json({ error: error.message });
+    if (error.message === 'Plaid Item still requires attention' || error.message === 'Plaid Item changed during reconnect') {
+      return response.status(409).json({ error: 'Plaid has not confirmed a healthy connection for that Item' });
+    }
+    next(error);
+  }
 });
 
 app.post('/api/accounts/create', auth, async (request, response, next) => {

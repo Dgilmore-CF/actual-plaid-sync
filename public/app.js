@@ -91,7 +91,7 @@ function renderConnections() {
     return `<article class="institution ${isArchived ? 'archived' : ''}">
       <div class="institution-head"><div><h2>${escapeHtml(item.institution_name)}</h2>
       <p>${itemMappings.length} accounts | ${itemMappings.filter(mapping => mapping.enabled).length} enabled | ${escapeHtml(status)} | Last sync ${escapeHtml(item.last_sync_at || 'Never')}</p></div>
-      <div class="institution-tools"><button data-sync-item="${escapeHtml(item.item_id)}">Sync Item</button><button data-archive="${escapeHtml(item.item_id)}">${isArchived ? 'Restore' : 'Archive'}</button><button data-collapse="${escapeHtml(item.item_id)}">${isCollapsed ? 'Expand' : 'Collapse'}</button></div></div>
+      <div class="institution-tools"><button data-reconnect="${escapeHtml(item.item_id)}">Reconnect with Plaid</button><button data-sync-item="${escapeHtml(item.item_id)}">Sync Item</button><button data-archive="${escapeHtml(item.item_id)}">${isArchived ? 'Restore' : 'Archive'}</button><button data-collapse="${escapeHtml(item.item_id)}">${isCollapsed ? 'Expand' : 'Collapse'}</button></div></div>
       <div class="account-list ${isCollapsed ? 'hidden' : ''}">${itemMappings.map(mapping => renderAccount(mapping, accountOptions, item)).join('')}</div>
     </article>`;
   }).join('') : '<div class="empty">No connections match this view.</div>';
@@ -170,6 +170,36 @@ async function refresh() {
 }
 
 function bindConnectionActions() {
+  document.querySelectorAll('[data-reconnect]').forEach(button => button.onclick = async () => {
+    const itemId = button.dataset.reconnect;
+    button.disabled = true;
+    try {
+      const result = await api('/api/link-token', { method: 'POST', body: JSON.stringify({ itemId }) });
+      let completed = false;
+      Plaid.create({
+        token: result.link_token,
+        onSuccess: async () => {
+          completed = true;
+          try {
+            await api('/api/reconnect', { method: 'POST', body: JSON.stringify({ itemId }) });
+            note('Plaid connection updated. Use Sync Item to verify access.');
+            await refresh();
+          } catch {
+            note('Reconnect could not be confirmed. The app kept the existing Item and mappings.', true);
+          } finally { button.disabled = false; }
+        },
+        onExit: () => {
+          if (!completed) {
+            note('Reconnect cancelled. The existing connection was not changed.');
+            button.disabled = false;
+          }
+        },
+      }).open();
+    } catch {
+      note('Could not start Plaid reconnect. The existing connection was not changed.', true);
+      button.disabled = false;
+    }
+  });
   document.querySelectorAll('[data-collapse]').forEach(button => button.onclick = () => {
     const values = collapsed();
     save('collapsedInstitutions', values.includes(button.dataset.collapse) ? values.filter(value => value !== button.dataset.collapse) : [...values, button.dataset.collapse]);
