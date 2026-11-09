@@ -15,7 +15,7 @@ import {
 import { syncAll, syncItem, previewInitial, approveInitial, eligibleItemIds, waitForSyncs } from './sync.js';
 import { verifyPlaidWebhook } from './webhook.js';
 import { duplicateAccounts } from './item-identity.js';
-import { cancelItemReconnect, confirmItemReconnect } from './item-reconnect.js';
+import { cancelItemReconnect, confirmItemReconnect, failItemReconnect } from './item-reconnect.js';
 import { createItemReconnectStore } from './item-reconnect-store.js';
 import { issueOAuthState, consumeOAuthState } from './oauth-state.js';
 import {
@@ -219,6 +219,30 @@ app.post('/api/reconnect/cancel', auth, async (request, response, next) => {
   } catch (error) {
     if (error.message === 'Unknown reconnect attempt') return response.status(404).json({ error: error.message });
     if (error.message === 'Reconnect attempt is not active' || error.message === 'Reconnect attempt changed before cancellation') {
+      return response.status(409).json({ error: 'Reconnect attempt has already finished' });
+    }
+    next(error);
+  }
+});
+
+app.post('/api/reconnect/fail', auth, async (request, response, next) => {
+  try {
+    const body = z.object({
+      itemId: z.string().min(1),
+      reconnectId: z.string().uuid(),
+      failureCode: z.enum(['link_exit_error', 'link_initialization_failed']),
+    }).parse(request.body);
+    const result = await failItemReconnect({
+      itemId: body.itemId,
+      reconnectId: body.reconnectId,
+      failureCode: body.failureCode,
+      loadAttempt: reconnectStore.load,
+      failAttempt: (itemId, reconnectId, code) => reconnectStore.fail(reconnectId, itemId, code),
+    });
+    response.json(result);
+  } catch (error) {
+    if (error.message === 'Unknown reconnect attempt') return response.status(404).json({ error: error.message });
+    if (error.message === 'Reconnect attempt is not active' || error.message === 'Reconnect attempt changed before failure was recorded') {
       return response.status(409).json({ error: 'Reconnect attempt has already finished' });
     }
     next(error);

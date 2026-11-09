@@ -179,6 +179,10 @@ function bindConnectionActions() {
       if (!reconnectId) return;
       try { await api('/api/reconnect/cancel', { method: 'POST', body: JSON.stringify({ itemId, reconnectId }) }); } catch {}
     };
+    const failAttempt = async failureCode => {
+      if (!reconnectId) return;
+      try { await api('/api/reconnect/fail', { method: 'POST', body: JSON.stringify({ itemId, reconnectId, failureCode }) }); } catch {}
+    };
     try {
       const result = await api('/api/link-token', { method: 'POST', body: JSON.stringify({ itemId }) });
       reconnectId = result.reconnectId;
@@ -197,11 +201,16 @@ function bindConnectionActions() {
             note('Reconnect could not be confirmed. The app kept the existing Item and mappings.', true);
           } finally { button.disabled = false; }
         },
-        onExit: async () => {
+        onExit: async error => {
           if (completed) return;
           completed = true;
-          await cancelAttempt();
-          note('Reconnect cancelled. The existing connection was not changed.');
+          if (error) {
+            await failAttempt('link_exit_error');
+            note('Plaid Link could not complete. The existing Item and mappings were not changed.', true);
+          } else {
+            await cancelAttempt();
+            note('Reconnect cancelled. The existing connection was not changed.');
+          }
           button.disabled = false;
         },
       }).open();
@@ -209,7 +218,7 @@ function bindConnectionActions() {
     } catch {
       if (!completed) {
         completed = true;
-        await cancelAttempt();
+        await failAttempt('link_initialization_failed');
       }
       note('Could not start Plaid reconnect. The existing connection was not changed.', true);
       button.disabled = false;

@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cancelItemReconnect, confirmItemReconnect } from '../src/item-reconnect.js';
+import { cancelItemReconnect, confirmItemReconnect, failItemReconnect } from '../src/item-reconnect.js';
 
 function dependencies(overrides = {}) {
-  const calls = { attempt: [], load: [], verify: [], finalize: [], cancel: [] };
+  const calls = { attempt: [], load: [], verify: [], finalize: [], cancel: [], fail: [] };
   return {
     calls,
     loadAttempt: async reconnectId => {
@@ -25,6 +25,10 @@ function dependencies(overrides = {}) {
     cancelAttempt: async (...args) => {
       calls.cancel.push(args);
       return 'cancelled';
+    },
+    failAttempt: async (...args) => {
+      calls.fail.push(args);
+      return true;
     },
     ...overrides,
   };
@@ -139,4 +143,30 @@ test('a completed reconnect cannot be changed to cancelled', async () => {
     alreadyCompleted: true,
   });
   assert.deepEqual(deps.calls.cancel, []);
+});
+
+test('Link errors are recorded as failed without storing the raw error', async () => {
+  const deps = dependencies();
+
+  assert.deepEqual(await failItemReconnect({
+    itemId: 'item-1',
+    reconnectId: 'attempt-1',
+    failureCode: 'link_exit_error',
+    ...deps,
+  }), { failed: true, alreadyFailed: false });
+  assert.deepEqual(deps.calls.fail, [['item-1', 'attempt-1', 'link_exit_error']]);
+});
+
+test('a completed reconnect cannot be changed to failed', async () => {
+  const deps = dependencies({
+    loadAttempt: async reconnectId => ({ reconnect_id: reconnectId, item_id: 'item-1', status: 'completed' }),
+  });
+
+  assert.deepEqual(await failItemReconnect({
+    itemId: 'item-1',
+    reconnectId: 'attempt-1',
+    failureCode: 'link_exit_error',
+    ...deps,
+  }), { failed: false, alreadyCompleted: true });
+  assert.deepEqual(deps.calls.fail, []);
 });
