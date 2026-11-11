@@ -1,6 +1,6 @@
 {
   "name": "actual-plaid-sync",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "private": true,
   "type": "module",
   "engines": {
@@ -8,7 +8,7 @@
   },
   "scripts": {
     "start": "node src/server.js",
-    "check": "node --check src/server.js && node --check src/sync.js && node --check src/actual.js && node --check src/webhook.js && node --check src/reconciliation.js && node --check src/balance-model.js && node --check src/oauth-state.js && node --check src/reviews.js && node --check src/item-identity.js && node --check src/item-reconnect.js && node --check src/item-reconnect-store.js && node --check src/link-token-request.js && node --check public/app.js && node --check src/account-sign.js && node --check src/history-recovery.js && node --check src/categories.js && node --check public/feedback.js && node --check src/schema.js && node --check src/item-eligibility.js && node --check src/sync-coordinator.js && node --check src/lifecycle-matching.js && node --check src/lifecycle-actions.js && node --check src/review-classification.js && node --check src/diagnostics.js && node --check src/starting-balance.js && node --check src/starting-balance-guards.js && node --check src/review-resolution.js && node --check src/plaid-pagination.js && node --check src/transaction-identity.js",
+    "check": "node --check src/server.js && node --check src/sync.js && node --check src/actual.js && node --check src/webhook.js && node --check src/reconciliation.js && node --check src/balance-model.js && node --check src/oauth-state.js && node --check src/reviews.js && node --check src/item-identity.js && node --check src/item-reconnect.js && node --check src/item-reconnect-store.js && node --check src/plaid-item-status.js && node --check src/sync-error.js && node --check src/link-token-request.js && node --check public/app.js && node --check src/account-sign.js && node --check src/history-recovery.js && node --check src/categories.js && node --check public/feedback.js && node --check src/schema.js && node --check src/item-eligibility.js && node --check src/sync-coordinator.js && node --check src/lifecycle-matching.js && node --check src/lifecycle-actions.js && node --check src/review-classification.js && node --check src/diagnostics.js && node --check src/starting-balance.js && node --check src/starting-balance-guards.js && node --check src/review-resolution.js && node --check src/plaid-pagination.js && node --check src/transaction-identity.js",
     "test": "node --test",
     "ci": "npm run check && npm test"
   },

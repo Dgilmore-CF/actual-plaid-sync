@@ -28,6 +28,8 @@ import { investigateAccount, refreshItemBalances } from './reconciliation.js';
 import { previewStartingBalance, recalculateStartingBalance } from './starting-balance.js';
 import { syncCoordinator } from './sync-coordinator.js';
 import { resolveAndRefreshReview } from './review-resolution.js';
+import { checkPlaidItemStatus } from './plaid-item-status.js';
+import { uncaughtExceptionSummary } from './sync-error.js';
 
 const appVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 const app = express();
@@ -97,11 +99,22 @@ app.get('/api/status', auth, async (_request, response, next) => {
       reviews: listReviews('production-open'),
       reviewCounts: { productionOpen: productionOpenReviewCount() },
       runs: db.prepare(`SELECT id,item_id,started_at,finished_at,added,modified,removed,reconciliation_mismatches,
-        CASE WHEN error IS NULL THEN NULL ELSE 'Sync run reported an error' END AS error,last_progress_at,phase
+        CASE WHEN error IS NULL THEN NULL ELSE 'Sync run reported an error' END AS error,last_progress_at,phase,
+        error_stage,error_category,error_code,error_http_status,error_name,error_source_file,error_source_line
         FROM sync_runs ORDER BY id DESC LIMIT 25`).all(),
       activeSyncItemSuffixes: syncCoordinator.activeItemIds().map(itemId => String(itemId).slice(-6)),
     });
   } catch (error) { next(error); }
+});
+
+app.get('/api/items/:itemId/plaid-status', auth, async (request, response) => {
+  const item = db.prepare('SELECT access_token_enc FROM items WHERE item_id=?').get(request.params.itemId);
+  if (!item) return response.status(404).json({ error: 'Unknown Plaid Item' });
+  const status = await checkPlaidItemStatus(async () => {
+    const result = await plaid.itemGet({ access_token: decrypt(item.access_token_enc) });
+    return result.data.item;
+  });
+  return response.json({ status, checkedAt: new Date().toISOString() });
 });
 
 app.get('/api/reviews', auth, (request, response, next) => {
@@ -449,6 +462,9 @@ app.use((error, _request, response, _next) => {
 });
 
 const server = app.listen(config.port, () => console.log(`Actual Plaid Sync ${appVersion} listening on ${config.port} (${config.plaidEnv})`));
+process.on('uncaughtExceptionMonitor', (error, origin) => {
+  console.error(JSON.stringify(uncaughtExceptionSummary(error, origin)));
+});
 const scheduler = setInterval(() => syncAll({ source: 'scheduled' }).catch(() => {}), config.syncMinutes * 60000);
 scheduler.unref();
 
