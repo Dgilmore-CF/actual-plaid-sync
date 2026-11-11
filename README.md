@@ -4,7 +4,7 @@ Actual Plaid Sync imports Plaid transaction activity into an Actual Budget, keep
 
 ## Release status
 
-The repository is preparing release 0.2.4 for Plaid Item reconnection support. Production remains on 0.2.3 until CI, security, multi-architecture image, release-asset, backup, and operator validation gates pass. The intended image is `ghcr.io/dgilmore-cf/actual-plaid-sync:0.2.4`. Release assets are not available until the tagged Actions workflow generates and verifies them.
+Production remains configured for immutable release `0.2.4` (`ghcr.io/dgilmore-cf/actual-plaid-sync:0.2.4`); the companion is temporarily stopped while sync failures are investigated. Release `0.2.5` adds Plaid status checks and sanitized sync-failure diagnostics, but is not deployed to Production. Failed-run records include SQLite parameter-binding errors, but the exact statement and ledger effects are not yet established. Do not treat Plaid Item health as proof that transaction sync or reconciliation is healthy.
 
 ## Product and architecture
 
@@ -150,6 +150,7 @@ Rollback means restoring the prior immutable image tag and, only if necessary, r
 
 - `/health` reports process health and version; `/ready` checks Actual API availability.
 - Review the dashboard's Item eligibility, run phase, last error, mismatch investigation, and review filters.
+- On Connections, use **Check Plaid status** for an explicit per-Item check. **Healthy** means Plaid did not report an Item error at check time; it does not certify transaction sync or reconciliation. Use **Reconnect with Plaid** only when the check says **Reconnect needed**. **Status unavailable** is not a reason to reconnect.
 - Inactive Items are expected to show **Excluded from automatic synchronization** and must not create runs or call Plaid.
 - An unfinished run is repaired at startup with the interruption reason; inspect run phases if it recurs.
 - If Actual is unavailable, check Actual container health and the Compose network before changing Plaid configuration.
@@ -178,17 +179,17 @@ CI runs syntax checks, Node tests, and the production dependency audit. Security
 
 ## Release lifecycle
 
-1. Verify the 0.2.4 issue and any related issues; implement on a release branch from current `main`.
+1. Verify the 0.2.5 release issue and related sync-diagnosis work; implement on a release branch from current `main`.
 2. Run `npm ci`, `npm run ci`, and `npm audit --omit=dev --audit-level=high`; review the complete diff and security scan.
 3. Open a PR referencing #20 and any additional issues. Require CI and Security checks.
-4. Merge only after review. Create a new immutable `v0.2.4` tag only once; never force-push or rewrite published tags.
+4. Merge only after review. Create the new immutable `v0.2.5` tag only once; never force-push or rewrite published tags.
 5. The tag workflow validates package/tag version, tests and scans source, creates and verifies the ZIP, SHA-256 file, and Git bundle, attaches them to the GitHub Release, and publishes ARM64/AMD64 images.
 6. Verify backups and the ARM64 image. Request explicit Production deployment approval, then validate health, reconciliation, two no-change syncs, scheduler, and signed webhook behavior.
 7. Record root cause, modules, migrations, tests, Production results, deployment date, and limitations on the issue. Close it only after Production validation.
 
 ## Roadmap
 
-Each item has its own issue and is not promised for 0.2.4:
+Each item has its own issue and is not promised for 0.2.5:
 
 - Investment transaction support [#16]
 - Optional posted-removal policies [#17]

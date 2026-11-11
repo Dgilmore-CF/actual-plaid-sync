@@ -3,77 +3,131 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#101b2d">
   <title>Actual Plaid Sync</title>
   <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <header>
-    <div class="brand">Actual Plaid Sync <small id="meta"></small></div>
-    <nav aria-label="Main navigation">
-      <button data-view="home" class="active">Home</button>
-      <button data-view="connections">Connections</button>
-      <button data-view="reviews">Review <span id="reviewCount" class="nav-count">0</span></button>
-      <button data-view="settings">Settings</button>
-    </nav>
-    <div class="actions"><button id="sync">Sync now</button><button id="link" class="primary">Add institution</button></div>
-  </header>
-  <main>
-    <section id="auth">
-      <h1>Unlock the console</h1>
-      <p>Use the administrator token for this browser session.</p>
-      <input id="token" type="password" autocomplete="current-password">
-      <button id="save" class="primary">Unlock</button>
-    </section>
-    <div id="notice" role="status" aria-live="polite"></div>
-    <section id="home" class="view active">
-      <h1>Financial sync overview</h1>
-      <div id="metrics" class="metrics"></div>
-      <div id="homeAccounts" class="cards"></div>
-    </section>
-    <section id="connections" class="view">
-      <div class="heading">
-        <div><h1>Connections</h1><p>Reconnect existing institutions with Plaid; use Add institution only for a new connection.</p></div>
-        <div>
-          <input id="search" placeholder="Search institution, account, or mask" aria-label="Search connections">
-          <select id="filter" aria-label="Filter connections">
-            <option value="all">All</option><option value="active">Active</option><option value="setup">Needs setup</option><option value="unmapped">Unmapped</option><option value="archived">Archived</option>
-          </select>
-          <button id="collapseAll">Collapse all</button><button id="expandAll">Expand all</button>
+  <section id="auth" class="auth-screen" aria-labelledby="authTitle">
+    <div class="auth-card">
+      <div class="brand-lockup brand-lockup-light">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span>Actual <b>Plaid Sync</b></span>
+      </div>
+      <p class="eyebrow">Private finance workspace</p>
+      <h1 id="authTitle">Welcome back</h1>
+      <p class="auth-copy">Unlock your secure connection console with your administrator token.</p>
+      <form id="authForm">
+        <label class="field-label" for="token">Administrator token</label>
+        <input id="token" type="password" autocomplete="current-password" placeholder="Enter your token">
+        <button id="save" type="submit" class="button button-primary button-wide">Unlock dashboard <span aria-hidden="true">→</span></button>
+      </form>
+      <p class="auth-footnote"><span class="security-dot" aria-hidden="true"></span> Your token stays in this browser session.</p>
+    </div>
+  </section>
+
+  <div id="notice" role="status" aria-live="polite"></div>
+
+  <div id="appShell" class="app-shell hidden">
+    <aside class="sidebar">
+      <a class="brand-lockup" href="#home" aria-label="Actual Plaid Sync home">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span>Actual <b>Plaid Sync</b></span>
+      </a>
+
+      <div class="workspace-label">WORKSPACE</div>
+      <nav aria-label="Main navigation">
+        <button data-view="home" class="nav-link active" aria-current="page">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 10.5 12 3.8l8.5 6.7v9.2a1.3 1.3 0 0 1-1.3 1.3h-5.1v-6.2h-4.2V21H4.8a1.3 1.3 0 0 1-1.3-1.3z"/></svg><span>Overview</span>
+        </button>
+        <button data-view="connections" class="nav-link">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M3.5 9.5h17M7 14h4"/></svg><span>Connections</span>
+        </button>
+        <button data-view="reviews" class="nav-link">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4.5h12a1.5 1.5 0 0 1 1.5 1.5v13l-3.2-2.2H6A1.5 1.5 0 0 1 4.5 15V6A1.5 1.5 0 0 1 6 4.5Z"/><path d="M8 9h8M8 12.5h5"/></svg><span>Review queue</span><span id="reviewCount" class="nav-count">0</span>
+        </button>
+        <button data-view="settings" class="nav-link settings-link">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="m19.2 13.5 1.1.9-1.5 2.7-1.4-.5a7.4 7.4 0 0 1-1.5.9l-.2 1.5h-3.1l-.2-1.5a7.4 7.4 0 0 1-1.5-.9l-1.4.5L8 14.4l1.1-.9a7.2 7.2 0 0 1 0-1.8L8 10.8l1.5-2.7 1.4.5a7.4 7.4 0 0 1 1.5-.9l.2-1.5h3.1l.2 1.5a7.4 7.4 0 0 1 1.5.9l1.4-.5 1.5 2.7-1.1.9a7.2 7.2 0 0 1 0 1.8Z"/></svg><span>Settings</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-spacer"></div>
+      <div class="sidebar-note">
+        <span class="sidebar-note-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 3.5 19 6v5.2c0 4.4-2.9 7.8-7 9.3-4.1-1.5-7-4.9-7-9.3V6z"/><path d="m9 12 2 2 4-4"/></svg>
+        </span>
+        <div><strong>Private by design</strong><span>Your financial data stays yours.</span></div>
+      </div>
+      <div class="sidebar-version" id="meta"></div>
+    </aside>
+
+    <div class="workspace">
+      <header class="topbar">
+        <div class="topbar-context"><span class="topbar-kicker">ACTUAL BUDGET</span><span class="topbar-divider" aria-hidden="true">/</span><span id="topbarPage">Overview</span></div>
+        <div class="topbar-actions">
+          <button id="sync" class="button button-secondary">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 9a6.5 6.5 0 0 1 11-2L20 12M4 12l2.9 5a6.5 6.5 0 0 0 11-2"/></svg><span>Sync now</span>
+          </button>
+          <button id="link" class="button button-primary">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>Add institution</span>
+          </button>
         </div>
-      </div>
-      <div id="connectionList"></div>
-    </section>
-    <section id="reviews" class="view">
-      <div class="heading"><div><h1>Review queue</h1><p>Production reviews are counted by default. Legacy records are retained when archived.</p></div>
-        <div><label for="reviewFilter">Show</label>
-          <select id="reviewFilter">
-            <option value="production-open">Production open</option>
-            <option value="needs-match">Needs match</option>
-            <option value="removed-posted">Removed posted</option>
-            <option value="legacy-test">Legacy and test</option>
-            <option value="resolved">Resolved</option>
-            <option value="all">All</option>
-          </select>
-          <button id="archiveLegacy" class="hidden">Archive legacy reviews</button>
-        </div>
-      </div>
-      <div id="reviewList"></div>
-    </section>
-    <section id="settings" class="view">
-      <h1>Settings and diagnostics</h1>
-      <div id="system" class="card"></div>
-      <div class="card"><h2>Automatic categorization</h2>
-        <p class="subtle">New Plaid transactions use Plaid Personal Finance Categories. Existing transactions can be categorized from a backup-first history match.</p>
-        <button id="backfillCategories" class="primary">Categorize existing transactions</button>
-      </div>
-      <h2>Operation details</h2><pre id="output">No operation has run.</pre>
-    </section>
-  </main>
-  <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-    <form id="modalForm"><h2 id="modalTitle"></h2><p id="modalMessage"></p>
-      <label id="modalLabel" class="hidden"><span id="modalLabelText"></span><input id="modalInput" autocomplete="off"></label>
-      <div><button type="button" id="cancel">Cancel</button><button type="submit" id="confirm" class="primary">Continue</button></div>
+      </header>
+
+      <main class="content">
+        <section id="home" class="view active">
+          <div class="page-heading page-heading-overview">
+            <div><p class="eyebrow">YOUR FINANCES, IN SYNC</p><h1>Financial overview</h1><p class="page-description">A clear view of your connected accounts and reconciliation health.</p></div>
+            <div class="overview-stamp"><span class="stamp-mark" aria-hidden="true">A</span><span><strong>Actual Budget</strong><small>Connected workspace</small></span></div>
+          </div>
+          <div id="metrics" class="metrics" aria-label="Financial sync summary"></div>
+          <div class="section-heading"><div><p class="eyebrow">ACCOUNT HEALTH</p><h2>Mapped accounts</h2></div><p class="section-caption">Balances and reconciliation from your latest check</p></div>
+          <div id="homeAccounts" class="cards"></div>
+        </section>
+
+        <section id="connections" class="view">
+          <div class="page-heading">
+            <div><p class="eyebrow">BANKING ACCESS</p><h1>Connections</h1><p class="page-description">Check Plaid status first. Reconnect only when Plaid says it’s needed; add institutions only for new connections.</p></div>
+          </div>
+          <div class="toolbar-card">
+            <label class="search-field" for="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.3"/><path d="m15.5 15.5 4.2 4.2"/></svg><input id="search" placeholder="Search institutions or accounts" aria-label="Search connections"></label>
+            <div class="toolbar-controls">
+              <label class="visually-hidden" for="filter">Filter connections</label>
+              <select id="filter" aria-label="Filter connections">
+                <option value="all">All connections</option><option value="active">Active</option><option value="setup">Needs setup</option><option value="unmapped">Unmapped</option><option value="archived">Archived</option>
+              </select>
+              <button id="collapseAll" class="button button-quiet">Collapse all</button><button id="expandAll" class="button button-quiet">Expand all</button>
+            </div>
+          </div>
+          <div id="connectionList" class="connection-list"></div>
+        </section>
+
+        <section id="reviews" class="view">
+          <div class="page-heading">
+            <div><p class="eyebrow">NEEDS YOUR ATTENTION</p><h1>Review queue</h1><p class="page-description">Review transaction changes carefully. Posted transactions are never removed automatically.</p></div>
+            <div class="review-filter-wrap"><label for="reviewFilter">Show</label><select id="reviewFilter">
+              <option value="production-open">Production open</option><option value="needs-match">Needs match</option><option value="removed-posted">Removed posted</option><option value="legacy-test">Legacy and test</option><option value="resolved">Resolved</option><option value="all">All reviews</option>
+            </select><button id="archiveLegacy" class="button button-secondary hidden">Archive legacy reviews</button></div>
+          </div>
+          <div id="reviewList" class="review-list"></div>
+        </section>
+
+        <section id="settings" class="view">
+          <div class="page-heading"><div><p class="eyebrow">WORKSPACE</p><h1>Settings &amp; diagnostics</h1><p class="page-description">System information and operational tools for this sync workspace.</p></div></div>
+          <div id="system" class="system-card"></div>
+          <article class="settings-card"><div class="settings-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 6.5h16M4 12h10M4 17.5h7"/><circle cx="18" cy="15.5" r="3.2"/><path d="m20.3 17.8 2 2"/></svg></div><div class="settings-copy"><h2>Automatic categorization</h2><p>Use Plaid Personal Finance Categories for new transactions. Existing transactions can be categorized through a backup-first history match.</p></div><button id="backfillCategories" class="button button-secondary">Categorize existing transactions</button></article>
+          <section class="operation-details"><div class="section-heading"><div><p class="eyebrow">LATEST ACTION</p><h2>Operation details</h2></div></div><pre id="output">No operation has run.</pre></section>
+        </section>
+      </main>
+      <footer class="workspace-footer"><span>Actual Plaid Sync</span><span>Secure account synchronization</span></footer>
+    </div>
+  </div>
+
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-describedby="modalMessage">
+    <form id="modalForm" class="modal-card"><div class="modal-mark" aria-hidden="true">!</div><h2 id="modalTitle"></h2><p id="modalMessage"></p>
+      <label id="modalLabel" class="hidden" for="modalInput"><span id="modalLabelText">Confirmation</span><input id="modalInput" autocomplete="off"></label>
+      <div class="modal-actions"><button type="button" id="cancel" class="button button-secondary">Cancel</button><button type="submit" id="confirm" class="button button-primary">Continue</button></div>
     </form>
   </div>
   <script src="/feedback.js"></script>

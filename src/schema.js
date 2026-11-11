@@ -34,6 +34,13 @@ export function migrateDatabase(database) {
     ['review_queue', 'archive_reason', 'TEXT'],
     ['sync_runs', 'last_progress_at', 'TEXT'],
     ['sync_runs', 'phase', 'TEXT'],
+    ['sync_runs', 'error_stage', 'TEXT'],
+    ['sync_runs', 'error_category', 'TEXT'],
+    ['sync_runs', 'error_code', 'TEXT'],
+    ['sync_runs', 'error_http_status', 'INTEGER'],
+    ['sync_runs', 'error_name', 'TEXT'],
+    ['sync_runs', 'error_source_file', 'TEXT'],
+    ['sync_runs', 'error_source_line', 'INTEGER'],
   ];
   for (const [table, name, declaration] of migrations) {
     ensureColumn(database, table, name, declaration);
@@ -87,6 +94,7 @@ export function repairInterruptedRuns(database, now = new Date().toISOString()) 
     UPDATE sync_runs
     SET finished_at = ?,
         last_progress_at = ?,
+        error_stage = COALESCE(error_stage, phase),
         phase = 'interrupted',
         error = 'Interrupted by restart or shutdown'
     WHERE finished_at IS NULL

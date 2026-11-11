@@ -17,6 +17,7 @@ import { ACTIVE_MAPPING_SQL, eligibleItemIds as selectEligibleItemIds, runEligib
 import { replacePendingActual, replaceTransactionMapping } from './lifecycle-actions.js';
 import { fetchTransactionChanges } from './plaid-pagination.js';
 import { importPlaidTransactionOnce } from './transaction-identity.js';
+import { classifySyncError } from './sync-error.js';
 
 const ACTIVE_MAPPING = ACTIVE_MAPPING_SQL;
 
@@ -342,32 +343,41 @@ async function performSync(itemId) {
 
   const run = db.prepare(`INSERT INTO sync_runs(item_id,phase,last_progress_at) VALUES(?,'fetching',CURRENT_TIMESTAMP)`).run(itemId);
   const runId = Number(run.lastInsertRowid);
+  let stage = 'fetching';
+  const setStage = nextStage => {
+    stage = nextStage;
+    progress(runId, nextStage);
+  };
   try {
-    const data = await pages(item, undefined, () => progress(runId, 'fetching'));
+    const data = await pages(item, undefined, () => setStage('fetching'));
+    db.prepare('UPDATE sync_runs SET added=?,modified=?,removed=? WHERE id=?')
+      .run(data.added.length, data.modified.length, data.removed.length, runId);
+    setStage('backfilling_transaction_map');
     await backfillTransactionMap(mappings);
-    progress(runId, 'processing_added');
+    setStage('processing_added');
     for (const tx of data.added) {
-      progress(runId, 'processing_added');
+      setStage('processing_added');
       const mapping = mappings.get(tx.account_id);
       if (!mapping) continue;
       if (tx.pending_transaction_id) await replacePending(tx, mapping, itemId);
       else await importNew(tx, mapping);
     }
-    progress(runId, 'processing_modified');
+    setStage('processing_modified');
     for (const tx of data.modified) {
-      progress(runId, 'processing_modified');
+      setStage('processing_modified');
       const mapping = mappings.get(tx.account_id);
       if (mapping) await applyModified(tx, mapping, itemId);
     }
-    progress(runId, 'processing_removed');
+    setStage('processing_removed');
     for (const tx of data.removed) {
-      progress(runId, 'processing_removed');
+      setStage('processing_removed');
       await applyRemoved(tx, itemId, mappings.get(tx.account_id));
     }
-    progress(runId, 'syncing_actual');
+    setStage('syncing_actual');
     await syncActual();
+    setStage('committing_cursor');
     db.prepare('UPDATE items SET cursor=? WHERE item_id=?').run(data.cursor, itemId);
-    progress(runId, 'reconciling');
+    setStage('reconciling');
     const reconciliation = await refreshItemBalances(itemId);
     const mismatches = reconciliation.filter(result => ![
       'Reconciled', 'Reconciled with pending activity', 'Timing difference',
@@ -388,9 +398,13 @@ async function performSync(itemId) {
       ok: mismatches.length === 0,
     };
   } catch (error) {
-    const message = String(error?.message || error);
-    db.prepare('UPDATE items SET last_error=? WHERE item_id=?').run(message, itemId);
-    db.prepare(`UPDATE sync_runs SET finished_at=CURRENT_TIMESTAMP,last_progress_at=CURRENT_TIMESTAMP,phase='failed',error=? WHERE id=?`).run(message, runId);
+    const details = classifySyncError(error);
+    db.prepare("UPDATE items SET last_error='Item sync reported an error' WHERE item_id=?").run(itemId);
+    db.prepare(`UPDATE sync_runs SET finished_at=CURRENT_TIMESTAMP,last_progress_at=CURRENT_TIMESTAMP,phase='failed',
+      error='Sync run reported an error',error_stage=?,error_category=?,error_code=?,error_http_status=?,error_name=?,
+      error_source_file=?,error_source_line=? WHERE id=?`)
+      .run(stage, details.errorCategory, details.errorCode, details.errorHttpStatus, details.errorName,
+        details.errorSourceFile, details.errorSourceLine, runId);
     throw error;
   }
 }

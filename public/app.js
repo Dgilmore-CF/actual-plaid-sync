@@ -3,11 +3,19 @@ const money = cents => (Number(cents || 0) / 100).toLocaleString(undefined, { st
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
 let state;
 let modalAction;
+let modalTrigger;
 let activeReviewFilter = 'production-open';
+const plaidItemStatuses = new Map();
 const token = () => sessionStorage.adminToken || '';
 const archived = () => JSON.parse(localStorage.archivedInstitutions || '[]');
 const collapsed = () => JSON.parse(localStorage.collapsedInstitutions || '[]');
 const save = (key, value) => { localStorage[key] = JSON.stringify(value); };
+const icons = {
+  institution: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 9 12 4l8.5 5H3.5Z"/><path d="M5.5 10v7m4.3-7v7m4.4-7v7m4.3-7v7M4 19h16"/></svg>',
+  accounts: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M3.5 9.5h17M7 14h4"/></svg>',
+  check: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="m8.5 12.2 2.3 2.3 4.8-5"/></svg>',
+  review: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.8 21 20H3z"/><path d="M12 9v4.4m0 3h.01"/></svg>',
+};
 
 async function api(path, options = {}) {
   options.headers = { ...(options.headers || {}), 'content-type': 'application/json', 'x-admin-token': token() };
@@ -28,8 +36,19 @@ function output(value) { $('#output').textContent = JSON.stringify(value, null, 
 function isDebt(mapping) { return mapping.plaid_type === 'credit' || mapping.plaid_type === 'loan'; }
 function view(name) {
   document.querySelectorAll('.view').forEach(element => element.classList.remove('active'));
-  document.querySelectorAll('nav button').forEach(element => element.classList.toggle('active', element.dataset.view === name));
+  document.querySelectorAll('[data-view]').forEach(element => {
+    const active = element.dataset.view === name;
+    element.classList.toggle('active', active);
+    if (active) element.setAttribute('aria-current', 'page');
+    else element.removeAttribute('aria-current');
+  });
   $(`#${name}`).classList.add('active');
+  $('#topbarPage').textContent = ({ home: 'Overview', connections: 'Connections', reviews: 'Review queue', settings: 'Settings & diagnostics' })[name] || 'Workspace';
+}
+
+function reconciledStatus(status) {
+  return ['reconciled', 'reconciled-pending', 'reconciled with pending activity', 'timing difference']
+    .includes(String(status || '').toLowerCase());
 }
 
 function render() {
@@ -37,28 +56,32 @@ function render() {
   const items = state.items || [];
   const active = mappings.filter(mapping => mapping.enabled && mapping.initial_import_complete && mapping.actual_account_id);
   $('#auth').classList.add('hidden');
+  $('#appShell').classList.remove('hidden');
   $('#meta').textContent = `${state.version} | ${state.plaidEnvironment}`;
   $('#reviewCount').textContent = String(state.reviewCounts?.productionOpen || 0);
+  const reconciled = active.filter(mapping => reconciledStatus(mapping.reconciliation_explanation || mapping.reconciliation_status)).length;
+  const productionReviews = Number(state.reviewCounts?.productionOpen || 0);
   $('#metrics').innerHTML = [
-    [items.length, 'Institutions'],
-    [active.length, 'Syncing accounts'],
-    [active.filter(mapping => ['reconciled', 'reconciled-pending'].includes(mapping.reconciliation_status)).length, 'Reconciled'],
-    [state.reviewCounts?.productionOpen || 0, 'Production reviews'],
-  ].map(([count, label]) => `<div class="metric"><strong>${escapeHtml(count)}</strong><span>${escapeHtml(label)}</span></div>`).join('');
+    { value: items.length, label: 'Connections', detail: `${items.length === 1 ? 'Institution' : 'Institutions'} in this workspace`, icon: icons.institution, accent: 'accent-blue' },
+    { value: active.length, label: 'Syncing accounts', detail: 'Approved and mapped', icon: icons.accounts, accent: '' },
+    { value: reconciled, label: 'Reconciled', detail: active.length ? `Of ${active.length} mapped accounts` : 'No mapped accounts yet', icon: icons.check, accent: 'accent-green' },
+    { value: productionReviews, label: 'Open reviews', detail: productionReviews ? 'Needs careful review' : 'No Production reviews', icon: icons.review, accent: productionReviews ? 'accent-amber' : '' },
+  ].map(metric => `<article class="metric"><div class="metric-top"><span class="metric-icon ${metric.accent}">${metric.icon}</span><span class="metric-label">${escapeHtml(metric.label)}</span></div><strong>${escapeHtml(metric.value)}</strong><span class="metric-foot">${escapeHtml(metric.detail)}</span></article>`).join('');
   $('#homeAccounts').innerHTML = active.map(mapping => {
     const status = mapping.reconciliation_explanation || mapping.reconciliation_status || 'unknown';
-    const difference = mapping.posted_reconciliation_difference_cents;
-    return `<article class="card">
-      <div class="row"><strong>${escapeHtml(mapping.actual_account_name || mapping.plaid_name)}</strong><span class="badge ${['reconciled', 'reconciled-pending', 'Reconciled', 'Reconciled with pending activity'].includes(status) ? 'good' : 'warn'}">${escapeHtml(status)}</span></div>
-      <p class="subtle">${isDebt(mapping) ? 'Amount owed' : 'Projected balance'}</p>
-      <h2>${money(mapping.actual_projected_balance_cents)}</h2>
-      <p class="subtle">Posted difference: ${money(difference)}</p>
-      <div class="account-actions"><button data-investigate="${escapeHtml(mapping.plaid_account_id)}">Investigate mismatch</button><button data-starting-preview="${escapeHtml(mapping.plaid_account_id)}">Preview Starting Balance</button></div>
+    const badgeClass = reconciledStatus(status) ? 'good' : 'warn';
+    const accountName = mapping.actual_account_name || mapping.plaid_name;
+    return `<article class="account-summary-card">
+      <div class="account-summary-header"><span class="account-avatar">${icons.institution}</span><div class="account-summary-title"><p class="eyebrow">${escapeHtml(mapping.plaid_type || 'BANK')} · ${escapeHtml(mapping.plaid_subtype || 'ACCOUNT')}</p><h3>${escapeHtml(accountName)}</h3></div><span class="badge ${badgeClass}">${escapeHtml(status)}</span></div>
+      <div class="account-summary-balance"><span>${isDebt(mapping) ? 'Projected amount owed' : 'Projected balance'}</span><strong>${money(mapping.actual_projected_balance_cents)}</strong></div>
+      <div class="account-summary-breakdown"><div><span>Posted</span><strong>${money(mapping.actual_cleared_balance_cents ?? mapping.plaid_current_balance_cents)}</strong></div><div><span>Pending activity</span><strong>${money(mapping.actual_pending_balance_cents)}</strong></div></div>
+      <div class="account-summary-footer"><span>Posted difference</span><strong>${money(mapping.posted_reconciliation_difference_cents)}</strong></div>
+      <div class="account-actions"><button class="button button-quiet" data-investigate="${escapeHtml(mapping.plaid_account_id)}">Investigate account</button><button class="button button-quiet" data-starting-preview="${escapeHtml(mapping.plaid_account_id)}">Preview Starting Balance</button></div>
     </article>`;
-  }).join('') || '<div class="empty">No approved account mappings yet.</div>';
+  }).join('') || '<div class="empty-state"><strong>No mapped accounts yet</strong><p>Connect an institution and map an account to start seeing its reconciliation health here.</p></div>';
   renderConnections();
   renderReviews();
-  $('#system').innerHTML = `<p>Version <b>${escapeHtml(state.version)}</b> | Environment <b>${escapeHtml(state.plaidEnvironment)}</b></p>`;
+  $('#system').innerHTML = `<span class="system-icon">${icons.check}</span><div class="system-copy"><strong>Sync service</strong><span>Version ${escapeHtml(state.version)} · ${escapeHtml(state.plaidEnvironment)} environment</span></div><span class="badge info">Connected</span>`;
   bindDashboardActions();
 }
 
@@ -70,7 +93,7 @@ function renderConnections() {
   const mappings = state.mappings || [];
   const accountOptions = (state.actualAccounts || []).filter(account => !account.closed)
     .map(account => `<option value="${escapeHtml(account.id)}">${escapeHtml(account.name)}</option>`).join('');
-  const items = state.items.filter(item => {
+  const items = (state.items || []).filter(item => {
     const itemMappings = mappings.filter(mapping => mapping.item_id === item.item_id);
     const isArchived = archivedItems.includes(item.item_id);
     const text = `${item.institution_name} ${itemMappings.map(mapping => `${mapping.plaid_name} ${mapping.plaid_mask}`).join(' ')}`.toLowerCase();
@@ -87,14 +110,26 @@ function renderConnections() {
     const itemMappings = mappings.filter(mapping => mapping.item_id === item.item_id);
     const isArchived = archivedItems.includes(item.item_id);
     const isCollapsed = collapsedItems.includes(item.item_id) || (!localStorage.collapsedInitialized && itemMappings.length > 5);
-    const status = item.automatic_sync ? item.sync_status : 'Excluded from automatic synchronization';
-    return `<article class="institution ${isArchived ? 'archived' : ''}">
-      <div class="institution-head"><div><h2>${escapeHtml(item.institution_name)}</h2>
-      <p>${itemMappings.length} accounts | ${itemMappings.filter(mapping => mapping.enabled).length} enabled | ${escapeHtml(status)} | Last sync ${escapeHtml(item.last_sync_at || 'Never')}</p></div>
-      <div class="institution-tools"><button data-reconnect="${escapeHtml(item.item_id)}">Reconnect with Plaid</button><button data-sync-item="${escapeHtml(item.item_id)}">Sync Item</button><button data-archive="${escapeHtml(item.item_id)}">${isArchived ? 'Restore' : 'Archive'}</button><button data-collapse="${escapeHtml(item.item_id)}">${isCollapsed ? 'Expand' : 'Collapse'}</button></div></div>
+    const syncStatus = item.automatic_sync ? item.sync_status : 'Excluded from automatic synchronization';
+    const plaidStatus = plaidItemStatuses.get(item.item_id)?.status || 'not_checked';
+    const plaidStatusLabel = {
+      not_checked: 'Not checked',
+      checking: 'Checking…',
+      healthy: 'Healthy',
+      reauth_required: 'Reconnect needed',
+      unavailable: 'Status unavailable',
+    }[plaidStatus] || 'Status unavailable';
+    const plaidStatusClass = plaidStatus === 'healthy' ? 'good' : plaidStatus === 'reauth_required' ? 'bad' : 'warn';
+    const checkedAt = plaidItemStatuses.get(item.item_id)?.checkedAt;
+    return `<article class="institution-card ${isArchived ? 'archived' : ''}">
+      <header class="institution-head"><div class="institution-identity"><span class="institution-mark">${icons.institution}</span><div class="institution-info"><h2>${escapeHtml(item.institution_name)}</h2>
+      <p class="institution-summary"><span>${itemMappings.length} ${itemMappings.length === 1 ? 'account' : 'accounts'}</span><span>${itemMappings.filter(mapping => mapping.enabled).length} enabled</span><span>${escapeHtml(syncStatus)}</span><span>Last sync ${escapeHtml(item.last_sync_at || 'Never')}</span></p>
+      <div class="institution-plaid-status"><span>Plaid status</span><span class="badge ${plaidStatusClass}">${escapeHtml(plaidStatusLabel)}</span>${checkedAt ? `<span class="checked-at">Checked ${escapeHtml(new Date(checkedAt).toLocaleString())}</span>` : ''}</div>
+      <p class="institution-note">Plaid health is separate from transaction sync and reconciliation.</p></div></div>
+      <div class="institution-tools"><button class="button button-secondary" data-plaid-status="${escapeHtml(item.item_id)}" ${plaidStatus === 'checking' ? 'disabled' : ''}>${plaidStatus === 'not_checked' || plaidStatus === 'checking' ? 'Check Plaid' : 'Check again'}</button>${plaidStatus === 'reauth_required' ? `<button class="button button-primary" data-reconnect="${escapeHtml(item.item_id)}">Reconnect</button>` : ''}<button class="button button-quiet" data-sync-item="${escapeHtml(item.item_id)}">Sync item</button><button class="button button-quiet" data-archive="${escapeHtml(item.item_id)}">${isArchived ? 'Restore' : 'Archive'}</button><button class="button button-quiet" data-collapse="${escapeHtml(item.item_id)}" aria-label="${isCollapsed ? 'Expand' : 'Collapse'} ${escapeHtml(item.institution_name)} accounts">${isCollapsed ? 'Expand' : 'Collapse'}</button></div></header>
       <div class="account-list ${isCollapsed ? 'hidden' : ''}">${itemMappings.map(mapping => renderAccount(mapping, accountOptions, item)).join('')}</div>
     </article>`;
-  }).join('') : '<div class="empty">No connections match this view.</div>';
+  }).join('') : '<div class="empty-state"><strong>No connections match</strong><p>Try another filter or adjust your search.</p></div>';
   localStorage.collapsedInitialized = '1';
   bindConnectionActions();
 }
@@ -103,18 +138,19 @@ function renderAccount(mapping, accountOptions, item) {
   const approved = Boolean(mapping.initial_import_complete);
   const excluded = !item.automatic_sync;
   const status = excluded ? 'Excluded from automatic synchronization' : (mapping.reconciliation_status || 'unknown');
-  return `<div class="account"><div class="account-top"><div><h3>${escapeHtml(mapping.plaid_name)} | ${escapeHtml(mapping.plaid_mask || 'No mask')}</h3>
-    <div class="subtle">${escapeHtml(mapping.plaid_type)} / ${escapeHtml(mapping.plaid_subtype)} | ${escapeHtml(status)}</div></div>
-    <span class="badge ${status === 'reconciled' || status === 'reconciled-pending' ? 'good' : 'warn'}">${escapeHtml(status)}</span></div>
+  const badgeClass = reconciledStatus(mapping.reconciliation_explanation || status) ? 'good' : 'warn';
+  return `<section class="account-row"><div class="account-row-top"><div class="account-row-title"><h3>${escapeHtml(mapping.plaid_name)} <span class="subtle">${escapeHtml(mapping.plaid_mask ? `•• ${mapping.plaid_mask}` : '')}</span></h3>
+    <p class="account-row-subtitle">${escapeHtml(mapping.plaid_type || 'Account')} / ${escapeHtml(mapping.plaid_subtype || '—')} · ${escapeHtml(status)}</p></div>
+    <span class="badge ${badgeClass}">${escapeHtml(mapping.reconciliation_explanation || status)}</span></div>
     <div class="balances"><div class="balance"><span>${isDebt(mapping) ? 'Amount owed' : 'Posted balance'}</span><strong>${money(mapping.actual_cleared_balance_cents ?? mapping.plaid_current_balance_cents)}</strong></div>
     <div class="balance"><span>Pending</span><strong>${money(mapping.actual_pending_balance_cents)}</strong></div>
     <div class="balance"><span>Projected</span><strong>${money(mapping.actual_projected_balance_cents)}</strong></div></div>
     <div class="account-actions">${mapping.actual_account_id
-      ? `<button data-rename="${escapeHtml(mapping.actual_account_id)}" data-name="${escapeHtml(mapping.actual_account_name || '')}">Rename Actual account</button>`
-      : `<select data-map="${escapeHtml(mapping.plaid_account_id)}"><option value="">Map to Actual...</option>${accountOptions}</select>`}
-      ${mapping.actual_account_id && !approved ? `<button data-preview="${escapeHtml(mapping.plaid_account_id)}">Preview import</button><button class="primary" data-approve="${escapeHtml(mapping.plaid_account_id)}">Approve import</button>` : ''}
-      ${approved ? `<button data-history="${escapeHtml(mapping.plaid_account_id)}">Check history</button><button data-recover="${escapeHtml(mapping.plaid_account_id)}">Recover missing history</button>` : ''}
-      <button data-investigate="${escapeHtml(mapping.plaid_account_id)}">Investigate mismatch</button></div></div>`;
+      ? `<button class="button button-quiet" data-rename="${escapeHtml(mapping.actual_account_id)}" data-name="${escapeHtml(mapping.actual_account_name || '')}">Rename Actual account</button>`
+      : `<label class="visually-hidden" for="map-${escapeHtml(mapping.plaid_account_id)}">Map ${escapeHtml(mapping.plaid_name)} to an Actual account</label><select id="map-${escapeHtml(mapping.plaid_account_id)}" data-map="${escapeHtml(mapping.plaid_account_id)}"><option value="">Map to Actual…</option>${accountOptions}</select>`}
+      ${mapping.actual_account_id && !approved ? `<button class="button button-secondary" data-preview="${escapeHtml(mapping.plaid_account_id)}">Preview import</button><button class="button button-primary" data-approve="${escapeHtml(mapping.plaid_account_id)}">Approve import</button>` : ''}
+      ${approved ? `<button class="button button-quiet" data-history="${escapeHtml(mapping.plaid_account_id)}">Check history</button><button class="button button-quiet" data-recover="${escapeHtml(mapping.plaid_account_id)}">Recover missing history</button>` : ''}
+      <button class="button button-quiet" data-investigate="${escapeHtml(mapping.plaid_account_id)}">Investigate account</button></div></section>`;
 }
 
 function renderReviewDetails(review) {
@@ -127,28 +163,28 @@ function renderReviewDetails(review) {
       <h3>Match analysis</h3><p>Top score ${escapeHtml(payload.topScore)} | Confidence ${escapeHtml(payload.confidence)} | Margin ${escapeHtml(payload.margin)}</p>
       ${(payload.candidates || []).map(candidate => `<div class="candidate"><p>Candidate: ${escapeHtml(candidate.payee)} | ${escapeHtml(candidate.date)} | ${money(candidate.amountCents)} | ${candidate.cleared ? 'Cleared' : 'Uncleared'} | Actual ID suffix ${escapeHtml(candidate.actualIdSuffix)} | Imported ID suffix ${escapeHtml(candidate.importedIdSuffix)} | Category ${escapeHtml(candidate.category || 'Uncategorized')}</p>
       <p>Score ${escapeHtml(candidate.score)} | ${escapeHtml(candidate.confidence)} confidence | Date difference ${escapeHtml(candidate.dateDifferenceDays)} days | Amount difference ${money(candidate.amountDifferenceCents)} | Merchant ${escapeHtml(candidate.merchantSimilarity)}</p>
-      <div class="account-actions"><button data-review-action="replace_pending" data-review-id="${review.id}" data-candidate="${escapeHtml(candidate.actualIdSuffix)}">Replace pending with posted</button><button data-review-action="delete_stale_pending" data-review-id="${review.id}" data-candidate="${escapeHtml(candidate.actualIdSuffix)}">Delete stale pending</button></div></div>`).join('')}
-      ${!(payload.candidates || []).length ? `<button data-review-investigate="${review.id}">Find pending candidates</button>` : ''}
-      <div class="account-actions"><button data-review-action="keep_both" data-review-id="${review.id}">Keep both</button><button data-review-action="no_match" data-review-id="${review.id}">No matching pending transaction</button></div></div>`;
+      <div class="account-actions"><button class="button button-secondary" data-review-action="replace_pending" data-review-id="${review.id}" data-candidate="${escapeHtml(candidate.actualIdSuffix)}">Replace pending with posted</button><button class="button button-quiet" data-review-action="delete_stale_pending" data-review-id="${review.id}" data-candidate="${escapeHtml(candidate.actualIdSuffix)}">Delete stale pending</button></div></div>`).join('')}
+      ${!(payload.candidates || []).length ? `<button class="button button-secondary" data-review-investigate="${review.id}">Find pending candidates</button>` : ''}
+      <div class="account-actions"><button class="button button-secondary" data-review-action="keep_both" data-review-id="${review.id}">Keep both</button><button class="button button-quiet" data-review-action="no_match" data-review-id="${review.id}">No matching pending transaction</button></div></div>`;
   }
   return `<div class="review-details"><p>Account: ${escapeHtml(payload.account || review.account)} | Payee: ${escapeHtml(payload.payee || 'Unknown')} | Date: ${escapeHtml(payload.date || 'Unknown')} | Amount: ${money(payload.amountCents)} | Pending: ${Boolean(payload.pending)} | Cleared: ${Boolean(payload.cleared)} | Category: ${escapeHtml(payload.category || 'Uncategorized')}</p>
     <p>Plaid ID suffix ${escapeHtml(payload.plaidTransactionIdSuffix || '')} | Actual ID suffix ${escapeHtml(payload.actualTransactionIdSuffix || '')} | Imported ID suffix ${escapeHtml(payload.importedIdSuffix || '')} | Reason ${escapeHtml(payload.reason || review.reason)}</p>
-    ${review.resolved_at ? '' : `<div class="account-actions"><button data-review-action="keep" data-review-id="${review.id}">Keep</button>${review.reason === 'removed_posted' ? `<button data-review-action="delete" data-review-id="${review.id}">Delete reviewed transaction</button>` : ''}<button data-review-action="resolve" data-review-id="${review.id}">Resolve without ledger change</button></div>`}</div>`;
+    ${review.resolved_at ? '' : `<div class="account-actions"><button class="button button-secondary" data-review-action="keep" data-review-id="${review.id}">Keep</button>${review.reason === 'removed_posted' ? `<button class="button button-quiet" data-review-action="delete" data-review-id="${review.id}">Delete reviewed transaction</button>` : ''}<button class="button button-quiet" data-review-action="resolve" data-review-id="${review.id}">Resolve without ledger change</button></div>`}</div>`;
 }
 
 function renderReviews() {
   const reviews = state.reviews || [];
-  $('#reviewList').innerHTML = reviews.map(review => `<article class="card review-card">
-    <div class="row"><strong>${escapeHtml(review.reason)}</strong><span class="badge ${review.resolved_at ? 'good' : 'warn'}">${escapeHtml(review.environment)}</span></div>
-    <p>${escapeHtml(review.account)} | ${escapeHtml(review.created_at)}${review.archived_at ? ` | Archived ${escapeHtml(review.archived_at)}` : ''}</p>
+  $('#reviewList').innerHTML = reviews.map(review => `<article class="review-card">
+    <header class="review-card-header"><div><h2 class="review-reason">${escapeHtml(String(review.reason || '').replaceAll('_', ' '))}</h2><p class="review-meta">${escapeHtml(review.account || 'Unknown account')} · ${escapeHtml(review.created_at || '')}${review.archived_at ? ` · Archived ${escapeHtml(review.archived_at)}` : ''}</p></div><span class="badge ${review.resolved_at ? 'good' : review.environment === 'production' ? 'warn' : 'info'}">${escapeHtml(review.resolved_at ? 'Resolved' : review.environment || 'Unknown')}</span></header>
     ${renderReviewDetails(review)}
-    ${!review.resolved_at && !review.archived_at ? `<div class="classification"><label>Environment <select data-classify-env="${review.id}"><option value="legacy_unknown" ${review.environment === 'legacy_unknown' ? 'selected' : ''}>Legacy/unknown</option><option value="production" ${review.environment === 'production' ? 'selected' : ''}>Production</option><option value="sandbox" ${review.environment === 'sandbox' ? 'selected' : ''}>Sandbox/test</option></select></label><label>Source Item <select data-classify-status="${review.id}"><option value="unknown" ${review.source_item_status === 'unknown' ? 'selected' : ''}>Unknown</option><option value="active" ${review.source_item_status === 'active' ? 'selected' : ''}>Active</option><option value="excluded" ${review.source_item_status === 'excluded' ? 'selected' : ''}>Excluded</option><option value="removed" ${review.source_item_status === 'removed' ? 'selected' : ''}>Removed</option></select></label><button data-classify="${review.id}">Save classification</button></div>` : ''}
-  </article>`).join('') || '<div class="empty">No reviews match this filter.</div>';
+    ${!review.resolved_at && !review.archived_at ? `<div class="classification"><label>Environment <select data-classify-env="${review.id}"><option value="legacy_unknown" ${review.environment === 'legacy_unknown' ? 'selected' : ''}>Legacy/unknown</option><option value="production" ${review.environment === 'production' ? 'selected' : ''}>Production</option><option value="sandbox" ${review.environment === 'sandbox' ? 'selected' : ''}>Sandbox/test</option></select></label><label>Source Item <select data-classify-status="${review.id}"><option value="unknown" ${review.source_item_status === 'unknown' ? 'selected' : ''}>Unknown</option><option value="active" ${review.source_item_status === 'active' ? 'selected' : ''}>Active</option><option value="excluded" ${review.source_item_status === 'excluded' ? 'selected' : ''}>Excluded</option><option value="removed" ${review.source_item_status === 'removed' ? 'selected' : ''}>Removed</option></select></label><button class="button button-secondary" data-classify="${review.id}">Save classification</button></div>` : ''}
+  </article>`).join('') || '<div class="empty-state"><strong>All caught up</strong><p>No reviews match this filter. New items requiring your attention will appear here.</p></div>';
   $('#archiveLegacy').classList.toggle('hidden', activeReviewFilter !== 'legacy-test');
   bindReviewActions();
 }
 
 function modal(title, message, action, initialValue = '') {
+  modalTrigger = document.activeElement;
   $('#modalTitle').textContent = title;
   $('#modalMessage').textContent = message;
   $('#modalInput').value = initialValue;
@@ -159,17 +195,44 @@ function modal(title, message, action, initialValue = '') {
   $('#modalInput').focus();
 }
 
-function closeModal() { $('#modal').classList.add('hidden'); modalAction = null; }
+function closeModal() {
+  $('#modal').classList.add('hidden');
+  modalAction = null;
+  if (modalTrigger instanceof HTMLElement) modalTrigger.focus();
+  modalTrigger = null;
+}
 
 async function refresh() {
   try {
     state = await api('/api/status');
     state.reviews = (await api(`/api/reviews?filter=${encodeURIComponent(activeReviewFilter)}`)).reviews;
     render();
-  } catch (error) { note(error.message, true); }
+  } catch (error) {
+    if (error.message === 'Unauthorized') {
+      $('#auth').classList.remove('hidden');
+      $('#appShell').classList.add('hidden');
+    } else note(error.message, true);
+  }
 }
 
 function bindConnectionActions() {
+  document.querySelectorAll('[data-plaid-status]').forEach(button => button.onclick = async () => {
+    const itemId = button.dataset.plaidStatus;
+    plaidItemStatuses.set(itemId, { status: 'checking' });
+    renderConnections();
+    try {
+      const result = await api(`/api/items/${encodeURIComponent(itemId)}/plaid-status`);
+      plaidItemStatuses.set(itemId, result);
+      renderConnections();
+      if (result.status === 'reauth_required') note('Plaid reports that this connection needs attention. Reconnect is available for this existing Item.');
+      else if (result.status === 'healthy') note('Plaid reports this connection is healthy. This does not confirm transaction sync or reconciliation.');
+      else note('Plaid status could not be confirmed. Reconnect is not recommended based on this check alone.', true);
+    } catch {
+      plaidItemStatuses.set(itemId, { status: 'unavailable' });
+      renderConnections();
+      note('Plaid status could not be checked. Reconnect is not recommended based on this check alone.', true);
+    }
+  });
   document.querySelectorAll('[data-reconnect]').forEach(button => button.onclick = async () => {
     const itemId = button.dataset.reconnect;
     let reconnectId;
@@ -195,6 +258,7 @@ function bindConnectionActions() {
           note('Plaid Link completed. Verifying the existing Item…');
           try {
             await api('/api/reconnect', { method: 'POST', body: JSON.stringify({ itemId, reconnectId }) });
+            plaidItemStatuses.set(itemId, { status: 'healthy', checkedAt: new Date().toISOString() });
             note('Plaid confirmed the existing connection. Use Sync Item to verify access.');
             await refresh();
           } catch {
@@ -358,9 +422,9 @@ function bindReviewActions() {
   });
 }
 
-document.querySelectorAll('nav button').forEach(button => button.onclick = () => view(button.dataset.view));
+document.querySelectorAll('[data-view]').forEach(button => button.onclick = () => view(button.dataset.view));
 $('#token').value = token();
-$('#save').onclick = () => { sessionStorage.adminToken = $('#token').value; refresh(); };
+$('#authForm').onsubmit = event => { event.preventDefault(); sessionStorage.adminToken = $('#token').value; refresh(); };
 $('#sync').onclick = async () => {
   try { output(await api('/api/sync', { method: 'POST', body: '{}' })); await refresh(); }
   catch (error) { note(error.message, true); }
@@ -389,6 +453,8 @@ $('#link').onclick = async () => {
   } catch (error) { note(error.message, true); }
 };
 $('#cancel').onclick = closeModal;
+$('#modal').onclick = event => { if (event.target === $('#modal')) closeModal(); };
+document.addEventListener('keydown', event => { if (event.key === 'Escape' && !$('#modal').classList.contains('hidden')) closeModal(); });
 $('#modalForm').onsubmit = async event => {
   event.preventDefault();
   const action = modalAction;
